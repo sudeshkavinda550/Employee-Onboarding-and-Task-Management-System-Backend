@@ -15,7 +15,7 @@ const router = express.Router();
 router.use(authenticate);
 router.use(isHROrAdmin);
 
-// Employee management
+// Employee management (HR only)
 router.get('/employees', employeeController.getAllEmployees);
 router.get('/employees/:id', employeeValidator.validateId, validate, employeeController.getEmployeeById);
 router.post('/employees', employeeValidator.create, validate, employeeController.createEmployee);

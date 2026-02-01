@@ -4,15 +4,20 @@ const authValidator = require('../validators/authValidator');
 const { validate } = require('../middleware/validation');
 const { authenticate } = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimiter');
-const emailService = require('../config/email'); 
+const emailService = require('../config/email');
+const upload = require('../middleware/upload');
 
 const router = express.Router();
 
+// Public routes
 router.post('/register', authLimiter, authValidator.register, validate, authController.register);
 router.post('/login', authLimiter, authValidator.login, validate, authController.login);
 router.post('/forgot-password', authLimiter, authValidator.forgotPassword, validate, authController.forgotPassword);
 router.post('/reset-password', authLimiter, authValidator.resetPassword, validate, authController.resetPassword);
+router.post('/refresh', authController.refreshToken);
+router.get('/verify-email', authController.verifyEmail);
 
+// Email test route
 router.post('/test-email', async (req, res) => {
   try {
     const { email, name } = req.body;
@@ -128,7 +133,13 @@ router.put('/profile', authenticate, authValidator.updateProfile, validate, auth
 router.post('/logout', authenticate, authController.logout);
 router.get('/verify', authenticate, authController.verifyToken);
 router.put('/change-password', authenticate, authValidator.changePassword, validate, authController.changePassword);
-router.post('/refresh', authController.refreshToken);
 
+// Profile picture routes
+router.post('/profile/picture', authenticate, upload.single('profilePicture'), authController.uploadProfilePicture);
+router.delete('/profile/picture', authenticate, authController.deleteProfilePicture);
+
+// Admin routes
+router.get('/users', authenticate, authController.getAllUsers);
+router.put('/users/:userId/status', authenticate, authController.updateUserStatus);
 
 module.exports = router;

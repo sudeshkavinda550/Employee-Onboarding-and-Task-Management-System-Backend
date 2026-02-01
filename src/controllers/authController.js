@@ -328,7 +328,7 @@ exports.login = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('🔥 LOGIN ERROR:');
+    console.error('LOGIN ERROR:');
     console.error('Error name:', error.name);
     console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
@@ -580,11 +580,13 @@ exports.refreshToken = async (req, res) => {
 exports.getProfile = async (req, res) => {
   try {
     const userId = req.user.id;
-    console.log('🔵 Fetching profile for user ID:', userId);
+    console.log('Fetching profile for user ID:', userId);
 
     const findUserSql = `
       SELECT id, name, email, role, employee_id, phone, 
-             date_of_birth, address, onboarding_status, 
+             date_of_birth, address, position, start_date,
+             emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+             profile_picture, onboarding_status, 
              is_active, email_verified, created_at, updated_at, last_login
       FROM users 
       WHERE id = $1
@@ -625,12 +627,12 @@ exports.getProfile = async (req, res) => {
 exports.updateProfile = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, phone, date_of_birth, address } = req.body;
+    const { name, phone, date_of_birth, address, position, start_date, emergency_contact_name, emergency_contact_phone, emergency_contact_relation } = req.body;
 
     console.log('Updating profile for user ID:', userId);
-    console.log('Update data:', { name, phone, date_of_birth, address });
+    console.log('Update data:', { name, phone, date_of_birth, address, position, start_date, emergency_contact_name, emergency_contact_phone, emergency_contact_relation });
 
-    if (!name && !phone && !date_of_birth && !address) {
+    if (!name && !phone && !date_of_birth && !address && !position && !start_date && !emergency_contact_name && !emergency_contact_phone && !emergency_contact_relation) {
       return res.status(400).json({
         status: 'error',
         message: 'At least one field is required to update'
@@ -643,15 +645,23 @@ exports.updateProfile = async (req, res) => {
           phone = COALESCE($2, phone),
           date_of_birth = COALESCE($3, date_of_birth),
           address = COALESCE($4, address),
+          position = COALESCE($5, position),
+          start_date = COALESCE($6, start_date),
+          emergency_contact_name = COALESCE($7, emergency_contact_name),
+          emergency_contact_phone = COALESCE($8, emergency_contact_phone),
+          emergency_contact_relation = COALESCE($9, emergency_contact_relation),
           updated_at = CURRENT_TIMESTAMP
-      WHERE id = $5
+      WHERE id = $10
       RETURNING id, name, email, role, employee_id, phone, 
-                date_of_birth, address, onboarding_status, 
+                date_of_birth, address, position, start_date,
+                emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+                profile_picture, onboarding_status, 
                 is_active, email_verified, created_at, updated_at
     `;
     
     const result = await query(updateUserSql, [
-      name, phone, date_of_birth, address, userId
+      name, phone, date_of_birth, address, position, start_date, 
+      emergency_contact_name, emergency_contact_phone, emergency_contact_relation, userId
     ]);
 
     const updatedUser = result.rows[0];
@@ -670,6 +680,99 @@ exports.updateProfile = async (req, res) => {
     res.status(500).json({
       status: 'error',
       message: 'Error updating profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Upload profile picture
+ */
+exports.uploadProfilePicture = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    console.log('Uploading profile picture for user ID:', userId);
+
+    if (!req.file) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'No file uploaded'
+      });
+    }
+
+    const profilePictureUrl = `/uploads/profile-pictures/${req.file.filename}`;
+    
+    const updateProfilePictureSql = `
+      UPDATE users 
+      SET profile_picture = $1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING id, name, email, role, employee_id, phone, 
+                date_of_birth, address, profile_picture, onboarding_status, 
+                is_active, email_verified, created_at, updated_at
+    `;
+    
+    const result = await query(updateProfilePictureSql, [profilePictureUrl, userId]);
+    const updatedUser = result.rows[0];
+
+    console.log('Profile picture uploaded for user ID:', userId);
+    logger.info(`Profile picture uploaded for user ID: ${userId}`);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile picture uploaded successfully',
+      data: updatedUser
+    });
+
+  } catch (error) {
+    console.error('Upload profile picture error:', error);
+    logger.error('Upload profile picture error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Error uploading profile picture',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Delete profile picture
+ */
+exports.deleteProfilePicture = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    console.log('Deleting profile picture for user ID:', userId);
+
+    const deleteProfilePictureSql = `
+      UPDATE users 
+      SET profile_picture = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING id, name, email, role, employee_id, phone, 
+                date_of_birth, address, profile_picture, onboarding_status, 
+                is_active, email_verified, created_at, updated_at
+    `;
+    
+    const result = await query(deleteProfilePictureSql, [userId]);
+    const updatedUser = result.rows[0];
+
+    console.log('Profile picture deleted for user ID:', userId);
+    logger.info(`Profile picture deleted for user ID: ${userId}`);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile picture deleted successfully',
+      data: updatedUser
+    });
+
+  } catch (error) {
+    console.error('Delete profile picture error:', error);
+    logger.error('Delete profile picture error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Error deleting profile picture',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -855,7 +958,9 @@ exports.getAllUsers = async (req, res) => {
 
     const usersSql = `
       SELECT id, name, email, role, employee_id, phone, 
-             date_of_birth, address, onboarding_status, 
+             date_of_birth, address, position, start_date,
+             emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+             profile_picture, onboarding_status, 
              is_active, email_verified, created_at, updated_at, last_login
       FROM users 
       ${whereClause}

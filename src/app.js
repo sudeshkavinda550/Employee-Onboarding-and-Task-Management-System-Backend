@@ -10,7 +10,19 @@ const logger = require('./utils/logger');
 
 const app = express();
 
-app.use(helmet());
+// Configure Helmet with specific options for images
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false, 
+    crossOriginEmbedderPolicy: false, 
+  })
+);
+
+// OR configure Helmet more specifically:
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }, 
+  crossOriginEmbedderPolicy: false,
+}));
 
 const corsOptions = {
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -37,7 +49,13 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', (req, res, next) => {
+  // Set CORS headers for static files
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  next();
+}, express.static('uploads'));
 
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -66,7 +84,6 @@ app._router.stack.forEach((r) => {
 });
 
 app.use(notFound);
-
 app.use(errorHandler);
 
 module.exports = app;

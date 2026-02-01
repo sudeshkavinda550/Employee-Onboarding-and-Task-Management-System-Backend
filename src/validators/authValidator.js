@@ -75,7 +75,7 @@ const authValidator = {
   ],
   
   /**
-   * Reset password validation - FIXED FOR OTP
+   * Reset password validation
    */
   resetPassword: [
     body('email')
@@ -101,7 +101,7 @@ const authValidator = {
       .withMessage('Password must be at least 8 characters long'),
     
     body('confirmPassword')
-      .optional() // Frontend validates this, backend doesn't need it
+      .optional() 
       .custom((value, { req }) => {
         if (value && value !== req.body.password) {
           throw new Error('Passwords do not match');
