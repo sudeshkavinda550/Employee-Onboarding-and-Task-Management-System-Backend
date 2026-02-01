@@ -26,6 +26,29 @@ const Document = {
   },
   
   /**
+   * Create template document
+   */
+  createTemplateDocument: async (documentData) => {
+    const {
+      template_id,
+      filename,
+      file_path,
+      file_size,
+      file_type,
+      uploaded_by,
+    } = documentData;
+    
+    const result = await query(
+      `INSERT INTO documents (template_id, filename, file_path, file_size, file_type, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [template_id, filename, file_path, file_size, file_type, uploaded_by]
+    );
+    
+    return result.rows[0];
+  },
+  
+  /**
    * Find documents by employee ID
    */
   findByEmployeeId: async (employee_id) => {
@@ -37,6 +60,22 @@ const Document = {
        WHERE d.employee_id = $1
        ORDER BY d.uploaded_date DESC`,
       [employee_id]
+    );
+    
+    return result.rows;
+  },
+  
+  /**
+   * Find documents by template ID
+   */
+  findByTemplateId: async (template_id) => {
+    const result = await query(
+      `SELECT d.*, u.name as uploaded_by_name
+       FROM documents d
+       LEFT JOIN users u ON d.uploaded_by = u.id
+       WHERE d.template_id = $1 AND d.is_active = true
+       ORDER BY d.uploaded_at DESC`,
+      [template_id]
     );
     
     return result.rows;
@@ -133,16 +172,29 @@ const Document = {
   },
   
   /**
-   * Delete document
+   * Delete document (soft delete for template documents)
    */
   delete: async (id) => {
-    // First get document to delete file
-    const doc = await Document.findById(id);
+    // Check if it's a template document
+    const doc = await query('SELECT template_id FROM documents WHERE id = $1', [id]);
     
-    // Delete from database
-    await query('DELETE FROM documents WHERE id = $1', [id]);
-    
-    return doc;
+    if (doc.rows[0]?.template_id) {
+      // Soft delete for template documents
+      const result = await query(
+        'UPDATE documents SET is_active = false WHERE id = $1 RETURNING *',
+        [id]
+      );
+      return result.rows[0];
+    } else {
+      // Hard delete for other documents
+      // First get document to delete file
+      const document = await Document.findById(id);
+      
+      // Delete from database
+      await query('DELETE FROM documents WHERE id = $1', [id]);
+      
+      return document;
+    }
   },
   
   /**

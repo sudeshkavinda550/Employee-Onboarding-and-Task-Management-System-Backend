@@ -5,7 +5,7 @@ const { validate } = require('../middleware/validation');
 const { authenticate } = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimiter');
 const emailService = require('../config/email');
-const upload = require('../middleware/upload');
+const { profileUpload } = require('../middleware/upload'); // Import specific middleware
 
 const router = express.Router();
 
@@ -134,8 +134,8 @@ router.post('/logout', authenticate, authController.logout);
 router.get('/verify', authenticate, authController.verifyToken);
 router.put('/change-password', authenticate, authValidator.changePassword, validate, authController.changePassword);
 
-// Profile picture routes
-router.post('/profile/picture', authenticate, upload.single('profilePicture'), authController.uploadProfilePicture);
+// Profile picture routes - FIXED HERE
+router.post('/profile/picture', authenticate, profileUpload, authController.uploadProfilePicture);
 router.delete('/profile/picture', authenticate, authController.deleteProfilePicture);
 
 // Admin routes

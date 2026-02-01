@@ -391,6 +391,35 @@ const User = {
   },
   
   /**
+   * Find available employees for template assignment
+   */
+  findAvailableEmployees: async () => {
+    const result = await query(
+      `SELECT u.id, u.name, u.email, u.role, u.department_id, u.position, 
+              u.profile_picture, u.onboarding_status,
+              d.name as department_name,
+              COUNT(et.id) FILTER (WHERE et.status = 'completed') as completed_tasks,
+              COUNT(et.id) as total_tasks,
+              CASE 
+                WHEN COUNT(et.id) = 0 THEN 0
+                ELSE ROUND(COUNT(et.id) FILTER (WHERE et.status = 'completed')::numeric / NULLIF(COUNT(et.id), 0) * 100, 2)
+              END as onboarding_progress
+       FROM users u
+       LEFT JOIN departments d ON u.department_id = d.id
+       LEFT JOIN employee_tasks et ON u.id = et.employee_id
+       WHERE u.is_active = true 
+         AND u.role NOT IN ('hr', 'admin')
+       GROUP BY u.id, d.name
+       ORDER BY u.name ASC`
+    );
+    
+    return result.rows.map(user => {
+      const { password, reset_password_token, reset_password_expires, ...userWithoutSensitive } = user;
+      return userWithoutSensitive;
+    });
+  },
+  
+  /**
    * Set reset password token
    */
   setResetToken: async (email, token, expires) => {
