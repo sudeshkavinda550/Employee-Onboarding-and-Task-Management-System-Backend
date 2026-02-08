@@ -1,8 +1,62 @@
 const { query } = require('../config/database');
 
 const EmployeeTask = {
+/**
+ * Assign template to employee (creates employee_tasks for all template tasks)
+ */
+assignToEmployee: async (employee_id, template_id, assigned_by_id) => {
+  // Get template tasks
+  const tasksResult = await query(
+    'SELECT * FROM tasks WHERE template_id = $1 ORDER BY order_index',
+    [template_id]
+  );
+  
+  if (tasksResult.rows.length === 0) {
+    throw new Error('Template has no tasks');
+  }
+  
+  // Get template estimated days for due date calculation
+  const templateResult = await query(
+    'SELECT estimated_completion_days FROM templates WHERE id = $1',
+    [template_id]
+  );
+  
+  const estimatedDays = templateResult.rows[0]?.estimated_completion_days || 7;
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + estimatedDays);
+  
+  // Create employee_tasks for each template task
+  const createdTasks = [];
+  
+  for (const task of tasksResult.rows) {
+    const result = await query(
+      `INSERT INTO employee_tasks 
+       (employee_id, task_id, status, assigned_date, due_date)
+       VALUES ($1, $2, 'pending', CURRENT_TIMESTAMP, $3)
+       ON CONFLICT (employee_id, task_id) DO NOTHING
+       RETURNING *`,
+      [employee_id, task.id, dueDate]
+    );
+    
+    if (result.rows[0]) {
+      createdTasks.push(result.rows[0]);
+    }
+  }
+  
+  // Update employee onboarding status
+  await query(
+    `UPDATE users 
+     SET onboarding_status = 'in_progress',
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1 AND onboarding_status = 'not_started'`,
+    [employee_id]
+  );
+  
+  return createdTasks;
+},
+
   /**
-   * Assign tasks to employee from template
+   * Assign tasks to employee from template (legacy function - kept for compatibility)
    */
   assignFromTemplate: async (employee_id, template_id) => {
     // Get template tasks
@@ -158,6 +212,40 @@ const EmployeeTask = {
        SET status = 'overdue'
        WHERE status IN ('pending', 'in_progress') AND due_date < NOW()`
     );
+  },
+
+  /**
+   * Get all employees with their onboarding progress
+   */
+  getAllEmployeesProgress: async () => {
+    const result = await query(
+      `SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.employee_id,
+        u.position,
+        u.start_date,
+        u.onboarding_status,
+        d.name as department_name,
+        COUNT(et.id) as total_tasks,
+        COUNT(CASE WHEN et.status = 'completed' THEN 1 END) as completed_tasks,
+        COUNT(CASE WHEN et.status = 'pending' THEN 1 END) as pending_tasks,
+        COUNT(CASE WHEN et.status = 'in_progress' THEN 1 END) as in_progress_tasks,
+        ROUND(
+          (COUNT(CASE WHEN et.status = 'completed' THEN 1 END)::numeric / 
+           NULLIF(COUNT(et.id), 0)::numeric) * 100, 
+          2
+        ) as progress_percentage
+       FROM users u
+       LEFT JOIN departments d ON u.department_id = d.id
+       LEFT JOIN employee_tasks et ON u.id = et.employee_id
+       WHERE u.role = 'employee'
+       GROUP BY u.id, d.name
+       ORDER BY u.start_date DESC`
+    );
+    
+    return result.rows;
   },
 };
 

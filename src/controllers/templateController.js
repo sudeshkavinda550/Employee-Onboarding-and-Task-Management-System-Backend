@@ -238,10 +238,14 @@ const templateController = {
     }
     
     // FIX 4: Check if template is already assigned to this employee
-    const existingAssignment = await query(
-      'SELECT COUNT(*) as count FROM employee_tasks WHERE employee_id = $1 AND template_id = $2',
-      [employeeId, templateId]
-    );
+   // NEW - Check via tasks since employee_tasks doesn't have template_id column
+const existingAssignment = await query(
+  `SELECT COUNT(*) as count 
+   FROM employee_tasks et
+   JOIN tasks t ON et.task_id = t.id
+   WHERE et.employee_id = $1 AND t.template_id = $2`,
+  [employeeId, templateId]
+);
     
     if (parseInt(existingAssignment.rows[0].count) > 0) {
       return sendError(res, 400, 'Template is already assigned to this employee');

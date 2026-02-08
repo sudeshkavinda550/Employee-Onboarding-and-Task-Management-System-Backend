@@ -23,11 +23,10 @@ const Template = {
       
       return result.rows[0];
     } catch (error) {
-      // FIX: Handle unique constraint violations
-      if (error.code === '23505') { // PostgreSQL unique violation
+      if (error.code === '23505') { 
         throw new Error('A template with this name already exists');
       }
-      if (error.code === '23503') { // PostgreSQL foreign key violation
+      if (error.code === '23503') { 
         throw new Error('Invalid department_id or created_by user');
       }
       throw error;
@@ -107,7 +106,6 @@ const Template = {
     const values = [];
     let paramCount = 1;
     
-    // FIX: Whitelist allowed fields to prevent updating restricted fields
     const allowedFields = [
       'name',
       'description',
@@ -188,7 +186,6 @@ const Template = {
       
       return result.rows[0];
     } catch (error) {
-      // FIX: Handle foreign key constraints
       if (error.code === '23503') {
         throw new Error('Cannot delete template with existing tasks or assignments');
       }
@@ -207,7 +204,6 @@ const Template = {
         throw new Error('Original template not found');
       }
 
-      // FIX: Use transaction to ensure both template and tasks are created or neither
       const { query: dbQuery } = require('../config/database');
       
       // Start transaction

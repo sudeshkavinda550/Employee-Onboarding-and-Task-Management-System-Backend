@@ -5,7 +5,7 @@ const { validate } = require('../middleware/validation');
 const { authenticate } = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimiter');
 const emailService = require('../config/email');
-const { profileUpload } = require('../middleware/upload'); // Import specific middleware
+const { profileUpload } = require('../middleware/upload');
 
 const router = express.Router();
 

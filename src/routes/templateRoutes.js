@@ -10,24 +10,15 @@ const router = express.Router();
 // All routes require authentication
 router.use(authenticate);
 
-// ============================================
-// CRITICAL FIX: Specific routes MUST come BEFORE parameterized routes
-// ============================================
-
-// Public routes - Employee-related (BEFORE /:id to avoid conflicts)
 router.get('/employees/for-assignment', templateController.getEmployeesForAssignment);
 router.get('/employees/progress', templateController.getAllEmployeesProgress);
 
-// Public template routes (accessible by all authenticated users)
 router.get('/', templateController.getAllTemplates);
 router.get('/:id', templateValidator.validateId, validate, templateController.getTemplateById);
 router.get('/:id/tasks', templateValidator.validateId, validate, templateController.getTemplateTasks);
 router.get('/:id/assignments', templateValidator.validateId, validate, templateController.getTemplateAssignments);
 router.get('/:id/analytics', templateValidator.validateId, validate, templateController.getTemplateAnalytics);
 
-// ============================================
-// HR/Admin only routes
-// ============================================
 router.use(isHROrAdmin);
 
 // Template CRUD operations

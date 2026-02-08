@@ -8,6 +8,7 @@ const analyticsRoutes = require('./analyticsRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
 const hrRoutes = require('./hrRoutes');
 const adminRoutes = require('./adminRoutes');
+const departmentRoutes = require('./departmentRoutes')
 
 const router = express.Router();
 
@@ -30,5 +31,6 @@ router.use('/analytics', analyticsRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/hr', hrRoutes);
 router.use('/admin', adminRoutes);
+router.use('/departments', departmentRoutes);
 
 module.exports = router;
