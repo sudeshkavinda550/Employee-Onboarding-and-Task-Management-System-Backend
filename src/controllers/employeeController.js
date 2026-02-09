@@ -110,29 +110,111 @@ const employeeController = {
     });
   }),
   
-  /**
-   * Create employee (HR/Admin)
-   */
-  createEmployee: asyncHandler(async (req, res) => {
+/**
+ * Create employee (HR/Admin)
+ */
+createEmployee: asyncHandler(async (req, res) => {
+  const { query } = require('../config/database');
+  const bcrypt = require('bcryptjs');
+  const emailService = require('../config/email');
+  
+  const {
+    name,
+    email,
+    password,
+    position,
+    department_id,
+    start_date,
+    phone,
+    address
+  } = req.body;
+
+  // Validate required fields
+  if (!name || !email) {
+    return sendError(res, 400, 'Name and email are required');
+  }
+
+  try {
+    // Check if email already exists
+    const existingUser = await query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return sendError(res, 400, 'Email already exists');
+    }
+
     // Generate employee ID if not provided
-    if (!req.body.employee_id) {
+    let employee_id = req.body.employee_id;
+    if (!employee_id) {
       const date = new Date();
       const year = date.getFullYear().toString().slice(-2);
       const month = (date.getMonth() + 1).toString().padStart(2, '0');
       const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-      req.body.employee_id = `EMP${year}${month}${random}`;
+      employee_id = `EMP${year}${month}${random}`;
     }
+
+    const plainPassword = password || 
+      Math.random().toString(36).slice(-8) + 
+      Math.random().toString(36).slice(-4).toUpperCase() + '1!';
     
-    const employee = await User.create({
-      ...req.body,
-      role: 'employee',
-      onboarding_status: 'not_started',
-      is_active: true,
-      email_verified: false
+    let department_name = null;
+    if (department_id) {
+      const deptResult = await query(
+        'SELECT name FROM departments WHERE id = $1',
+        [department_id]
+      );
+      department_name = deptResult.rows[0]?.name;
+    }
+
+    console.log('Attempting to send credentials email to:', email);
+    try {
+      await emailService.sendEmployeeCredentialsEmail({ 
+        name: name,
+        email: email,
+        employeeId: employee_id,
+        password: plainPassword,
+        position: position,
+        startDate: start_date,
+        department: department_name
+      });
+      console.log('Welcome email sent successfully to:', email);
+    } catch (emailError) {
+      // Log the actual error details
+      console.error('Email service error details:', {
+        message: emailError.message,
+        stack: emailError.stack,
+        name: emailError.name
+      });
+      // Don't fail employee creation, but log it prominently
+      console.log('WARNING: Employee will be created but email will not be sent');
+    }
+
+    // Hash password AFTER sending email
+    const hashedPassword = await bcrypt.hash(plainPassword, 10);
+
+    // Create employee in database
+    const result = await query(
+      `INSERT INTO users 
+       (name, email, password, employee_id, position, department_id, start_date, phone, address, role, onboarding_status, is_active, email_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'employee', 'not_started', true, false)
+       RETURNING id, name, email, employee_id, position, department_id, start_date, phone, address, onboarding_status, is_active, created_at`,
+      [name, email, hashedPassword, employee_id, position, department_id || null, start_date, phone || null, address || null]
+    );
+
+    const newEmployee = result.rows[0];
+
+    sendSuccess(res, 201, 'Employee created successfully. Welcome email sent with login credentials.', {
+      ...newEmployee,
+      department_name: department_name
     });
-    
-    sendSuccess(res, 201, 'Employee created successfully', employee);
-  }),
+
+  } catch (error) {
+    console.error('Error creating employee:', error);
+    return sendError(res, 500, 'Failed to create employee: ' + error.message);
+  }
+}),
   
   /**
    * Update employee (HR/Admin)
