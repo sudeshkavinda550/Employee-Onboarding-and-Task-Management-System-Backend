@@ -2,65 +2,73 @@ const { query } = require('../config/database');
 const { hashPassword, comparePassword } = require('../utils/hashPassword');
 
 const User = {
-  /**
-   * Create a new user
-   */
-  create: async (userData) => {
-    const {
-      name,
-      email,
-      password,
-      role = 'employee',
-      employee_id,
-      phone,
-      date_of_birth,
-      address,
-      department_id,
-      position,
-      start_date,
-      manager_id,
-      emergency_contact_name,
-      emergency_contact_phone,
-      emergency_contact_relation,
-      profile_picture
-    } = userData;
-    
-    const hashedPassword = await hashPassword(password);
-    
-    const result = await query(
-      `INSERT INTO users (
-        name, email, password, role, employee_id, phone, date_of_birth,
-        address, department_id, position, start_date, manager_id,
-        emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
-        profile_picture
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-      RETURNING id, name, email, role, employee_id, created_at`,
-      [
-        name, email, hashedPassword, role, employee_id, phone, date_of_birth,
-        address, department_id, position, start_date, manager_id,
-        emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
-        profile_picture
-      ]
-    );
-    
-    return result.rows[0];
-  },
+ /**
+ * Create a new user
+ */
+create: async (userData) => {
+  const {
+    name,
+    email,
+    password,
+    role = 'employee',
+    employee_id,
+    phone,
+    date_of_birth,
+    address,
+    department_id,
+    position,
+    start_date,
+    manager_id,
+    emergency_contact_name,
+    emergency_contact_phone,
+    emergency_contact_relation,
+    profile_picture
+  } = userData;
   
-  /**
-   * Find user by email
-   */
-  findByEmail: async (email) => {
-    const result = await query(
-      `SELECT u.*, d.name as department_name, 
-              m.name as manager_name, m.email as manager_email
-       FROM users u
-       LEFT JOIN departments d ON u.department_id = d.id
-       LEFT JOIN users m ON u.manager_id = m.id
-       WHERE u.email = $1`,
-      [email]
+  const existingUser = await query(
+    'SELECT id FROM users WHERE email = $1',
+    [email]
+  );
+  
+  if (existingUser.rows.length > 0) {
+    const error = new Error('Email already exists');
+    error.status = 400;
+    throw error;
+  }
+  
+  if (employee_id) {
+    const existingEmployeeId = await query(
+      'SELECT id FROM users WHERE employee_id = $1',
+      [employee_id]
     );
-    return result.rows[0];
-  },
+    
+    if (existingEmployeeId.rows.length > 0) {
+      const error = new Error('Employee ID already exists');
+      error.status = 400;
+      throw error;
+    }
+  }
+  
+  const hashedPassword = await hashPassword(password);
+  
+  const result = await query(
+    `INSERT INTO users (
+      name, email, password, role, employee_id, phone, date_of_birth,
+      address, department_id, position, start_date, manager_id,
+      emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+      profile_picture
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    RETURNING id, name, email, role, employee_id, created_at`,
+    [
+      name, email, hashedPassword, role, employee_id, phone, date_of_birth,
+      address, department_id, position, start_date, manager_id,
+      emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+      profile_picture
+    ]
+  );
+  
+  return result.rows[0];
+},
   
   /**
    * Find user by ID
@@ -82,7 +90,6 @@ const User = {
     
     const user = result.rows[0];
     
-    // Remove sensitive fields
     delete user.password;
     delete user.reset_password_token;
     delete user.reset_password_expires;
@@ -257,14 +264,118 @@ const User = {
   },
   
   /**
-   * Delete user (soft delete)
+   * HARD DELETE 
    */
   delete: async (id) => {
+    console.log('Starting HARD DELETE for user ID:', id);
+    
+    try {
+      const userCheck = await query(
+        'SELECT id, name, email, employee_id FROM users WHERE id = $1',
+        [id]
+      );
+      
+      if (userCheck.rows.length === 0) {
+        throw new Error('User not found');
+      }
+      
+      const userInfo = userCheck.rows[0];
+      console.log(`   Found user: ${userInfo.name} (${userInfo.email})`);
+      
+      try {
+        const docsResult = await query(
+          'DELETE FROM documents WHERE employee_id = $1',
+          [id]
+        );
+        console.log(`   Deleted ${docsResult.rowCount} documents`);
+      } catch (err) {
+        console.log(`   Documents deletion: ${err.message}`);
+      }
+      
+      try {
+        const tasksResult = await query(
+          'DELETE FROM employee_tasks WHERE employee_id = $1',
+          [id]
+        );
+        console.log(`   Deleted ${tasksResult.rowCount} employee tasks`);
+      } catch (err) {
+        console.log(`   Employee tasks deletion: ${err.message}`);
+      }
+      
+      try {
+        const managedResult = await query(
+          'UPDATE users SET manager_id = NULL WHERE manager_id = $1',
+          [id]
+        );
+        console.log(`   Updated ${managedResult.rowCount} managed users`);
+      } catch (err) {
+        console.log(`   Manager update: ${err.message}`);
+      }
+      
+      try {
+        const notifsResult = await query(
+          'DELETE FROM notifications WHERE user_id = $1 OR related_user_id = $1',
+          [id]
+        );
+        console.log(`   Deleted ${notifsResult.rowCount} notifications`);
+      } catch (err) {
+        console.log('   Notifications table not found or error:', err.message);
+      }
+      
+      try {
+        const logsResult = await query(
+          'DELETE FROM activity_logs WHERE user_id = $1',
+          [id]
+        );
+        console.log(`   Deleted ${logsResult.rowCount} activity logs`);
+      } catch (err) {
+        console.log('   Activity logs table not found or error:', err.message);
+      }
+      
+      try {
+        const resetResult = await query(
+          'DELETE FROM password_resets WHERE user_id = $1 OR email = $2',
+          [id, userInfo.email]
+        );
+        if (resetResult.rowCount > 0) {
+          console.log(`   ✓ Deleted ${resetResult.rowCount} password reset records`);
+        }
+      } catch (err) {
+      }
+      
+      const userResult = await query(
+        'DELETE FROM users WHERE id = $1 RETURNING id, name, email, employee_id',
+        [id]
+      );
+      
+      if (userResult.rowCount === 0) {
+        throw new Error('User not found during final deletion');
+      }
+      
+      const deletedUser = userResult.rows[0];
+      console.log(`PERMANENTLY DELETED user: ${deletedUser.name} (${deletedUser.email})`);
+      
+      return deletedUser;
+      
+    } catch (error) {
+      console.error('Hard delete failed:', error.message);
+      
+      if (error.message.includes('foreign key constraint')) {
+        throw new Error('Cannot delete user due to existing references in other tables. Please check database constraints.');
+      }
+      
+      throw error;
+    }
+  },
+  
+  /**
+   * Soft Delete
+   */
+  softDelete: async (id) => {
     const result = await query(
       'UPDATE users SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id',
       [id]
     );
-    
     return result.rows[0];
   },
   
@@ -335,7 +446,7 @@ const User = {
           COUNT(*) as total_documents,
           COUNT(*) FILTER (WHERE status = 'verified') as verified_documents
         FROM documents
-        WHERE user_id = $1`,
+        WHERE employee_id = $1`,
         [id]
       )
     ]);

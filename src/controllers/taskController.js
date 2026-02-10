@@ -41,12 +41,11 @@ const taskController = {
       return sendError(res, 404, 'Task not found');
     }
     
-    // Check if user owns the task
     if (task.employee_id !== req.user.id && req.user.role === 'employee') {
       return sendError(res, 403, 'Access denied');
     }
     
-    const updatedTask = await taskService.updateTaskStatus(req.params.id, status, req.user.id);
+    const updatedTask = await EmployeeTask.updateStatus(req.params.id, status, notes);
     sendSuccess(res, 200, 'Task status updated successfully', updatedTask);
   }),
   
@@ -69,7 +68,6 @@ const taskController = {
       file_size: req.file.size,
     });
     
-    // Update task status to completed
     await EmployeeTask.updateStatus(req.params.id, 'completed');
     
     sendSuccess(res, 201, 'Document uploaded successfully', document);
@@ -97,6 +95,154 @@ const taskController = {
   getOverdueTasks: asyncHandler(async (req, res) => {
     const tasks = await EmployeeTask.getOverdueTasks(req.user.id);
     sendSuccess(res, 200, 'Overdue tasks retrieved successfully', tasks);
+  }),
+  
+  /**
+   * Get task statistics for dashboard
+   */
+  getTaskStats: asyncHandler(async (req, res) => {
+    const employeeId = req.user.id;
+    
+    const progress = await EmployeeTask.getProgress(employeeId);
+    
+    sendSuccess(res, 200, 'Task statistics retrieved successfully', {
+      total: progress.total || 0,
+      completed: progress.completed || 0,
+      inProgress: progress.in_progress || 0,
+      pending: progress.pending || 0,
+      overdue: progress.overdue || 0,
+      percentage: progress.percentage || 0
+    });
+  }),
+  
+  /**
+   * Get task summary for dashboard 
+   */
+  getTaskSummary: asyncHandler(async (req, res) => {
+    const employeeId = req.user.id;
+    
+    const tasks = await EmployeeTask.findByEmployeeId(employeeId);
+    
+    const formattedTasks = tasks.map(task => ({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      taskType: task.task_type,
+      estimatedTime: task.estimated_time || 30,
+      dueDate: task.due_date,
+      assignedDate: task.assigned_date,
+      completedDate: task.completed_date,
+      resourceUrl: task.resource_url,
+      templateName: task.template_name,
+      isRequired: task.is_required !== false,
+      order: task.order_index || 0,
+      notes: task.notes,
+      priority: task.priority || 'medium',
+      isOverdue: task.due_date && new Date(task.due_date) < new Date() && task.status !== 'completed'
+    }));
+    
+    sendSuccess(res, 200, 'Task summary retrieved successfully', formattedTasks);
+  }),
+  
+  /**
+   * Get today's tasks 
+   */
+  getTodayTasks: asyncHandler(async (req, res) => {
+    const employeeId = req.user.id;
+    
+    const tasks = await EmployeeTask.getTodayTasks(employeeId);
+    
+    const formattedTasks = tasks.map(task => ({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      taskType: task.task_type,
+      dueDate: task.due_date,
+      isOverdue: task.due_date && new Date(task.due_date) < new Date() && task.status !== 'completed'
+    }));
+    
+    sendSuccess(res, 200, "Today's tasks retrieved successfully", formattedTasks);
+  }),
+  
+  /**
+   * Bulk update task statuses 
+   */
+  bulkUpdateTaskStatus: asyncHandler(async (req, res) => {
+    const { updates } = req.body;
+    const employeeId = req.user.id;
+    
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return sendError(res, 400, 'No updates provided');
+    }
+    
+    const updatedTasks = [];
+    
+    for (const update of updates) {
+      const { taskId, status, notes } = update;
+      
+      const task = await EmployeeTask.findById(taskId);
+      if (!task || task.employee_id !== employeeId) {
+        return sendError(res, 403, `Access denied for task ${taskId}`);
+      }
+      
+      const updatedTask = await EmployeeTask.updateStatus(taskId, status, notes);
+      updatedTasks.push(updatedTask);
+    }
+    
+    const progress = await EmployeeTask.getProgress(employeeId);
+    
+    sendSuccess(res, 200, 'Tasks updated successfully', {
+      updatedTasks,
+      progress: {
+        total: progress.total || 0,
+        completed: progress.completed || 0,
+        percentage: progress.percentage || 0
+      }
+    });
+  }),
+  
+  /**
+   * Get task checklist analytics 
+   */
+  getTaskAnalytics: asyncHandler(async (req, res) => {
+    const employeeId = req.user.id;
+    
+    const progress = await EmployeeTask.getProgress(employeeId);
+    const detailedStats = await EmployeeTask.getDetailedStatistics(employeeId);
+    
+    sendSuccess(res, 200, 'Analytics retrieved successfully', {
+      overview: {
+        total: progress.total || 0,
+        completed: progress.completed || 0,
+        inProgress: progress.in_progress || 0,
+        pending: progress.pending || 0,
+        overdue: progress.overdue || 0,
+        percentage: progress.percentage || 0
+      },
+      detailed: detailedStats || {}
+    });
+  }),
+  
+  /**
+   * Get filtered tasks 
+   */
+  getFilteredTasks: asyncHandler(async (req, res) => {
+    const employeeId = req.user.id;
+    const filters = {
+      status: req.query.status,
+      category: req.query.category,
+      priority: req.query.priority,
+      dueDate: req.query.dueDate,
+      search: req.query.search,
+      page: parseInt(req.query.page) || 1,
+      limit: parseInt(req.query.limit) || 20
+    };
+    
+    const result = await EmployeeTask.getTasksWithFilters(employeeId, filters);
+    
+    sendSuccess(res, 200, 'Filtered tasks retrieved successfully', result);
   }),
   
   /**
@@ -140,14 +286,7 @@ const taskController = {
   deleteTask: asyncHandler(async (req, res) => {
     await Task.delete(req.params.id);
     sendSuccess(res, 200, 'Task deleted successfully');
-  }),
-  
-  /**
-   * Get task analytics (HR/Admin)
-   */
-  getTaskAnalytics: asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, 'Analytics retrieved successfully', {});
-  }),
+  })
 };
 
 module.exports = taskController;

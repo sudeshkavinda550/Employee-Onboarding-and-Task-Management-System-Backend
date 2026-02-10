@@ -129,13 +129,11 @@ createEmployee: asyncHandler(async (req, res) => {
     address
   } = req.body;
 
-  // Validate required fields
   if (!name || !email) {
     return sendError(res, 400, 'Name and email are required');
   }
 
   try {
-    // Check if email already exists
     const existingUser = await query(
       'SELECT id FROM users WHERE email = $1',
       [email]
@@ -145,7 +143,6 @@ createEmployee: asyncHandler(async (req, res) => {
       return sendError(res, 400, 'Email already exists');
     }
 
-    // Generate employee ID if not provided
     let employee_id = req.body.employee_id;
     if (!employee_id) {
       const date = new Date();
@@ -181,20 +178,16 @@ createEmployee: asyncHandler(async (req, res) => {
       });
       console.log('Welcome email sent successfully to:', email);
     } catch (emailError) {
-      // Log the actual error details
       console.error('Email service error details:', {
         message: emailError.message,
         stack: emailError.stack,
         name: emailError.name
       });
-      // Don't fail employee creation, but log it prominently
       console.log('WARNING: Employee will be created but email will not be sent');
     }
 
-    // Hash password AFTER sending email
     const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
-    // Create employee in database
     const result = await query(
       `INSERT INTO users 
        (name, email, password, employee_id, position, department_id, start_date, phone, address, role, onboarding_status, is_active, email_verified)
@@ -240,22 +233,46 @@ createEmployee: asyncHandler(async (req, res) => {
   }),
   
   /**
-   * Delete employee (HR/Admin)
-   */
-  deleteEmployee: asyncHandler(async (req, res) => {
-    const employee = await User.findById(req.params.id);
+ * Delete employee (HR/Admin)
+ */
+deleteEmployee: asyncHandler(async (req, res) => {
+  const employeeId = req.params.id;
+  
+  const employee = await User.findById(employeeId);
+  
+  if (!employee) {
+    return sendError(res, 404, 'Employee not found');
+  }
+  
+  if (employee.role !== 'employee') {
+    return sendError(res, 400, 'Can only delete employee accounts');
+  }
+  
+  if (req.user.id === employeeId) {
+    return sendError(res, 400, 'Cannot delete your own account');
+  }
+  
+  try {
+    const deleted = await User.delete(employeeId);
     
-    if (!employee) {
-      return sendError(res, 404, 'Employee not found');
+    sendSuccess(res, 200, 'Employee deleted permanently', {
+      deleted: {
+        id: deleted.id,
+        name: deleted.name,
+        email: deleted.email
+      }
+    });
+    
+  } catch (error) {
+    console.error('Delete error:', error);
+    
+    if (error.code === '23503') {
+      return sendError(res, 409, 'Cannot delete: Foreign key constraint');
     }
     
-    if (employee.role !== 'employee') {
-      return sendError(res, 400, 'User is not an employee');
-    }
-    
-    await User.delete(req.params.id);
-    sendSuccess(res, 200, 'Employee deleted successfully');
-  }),
+    return sendError(res, 500, `Delete failed: ${error.message}`);
+  }
+}),
   
   /**
    * Assign template to employee (HR/Admin)
@@ -268,7 +285,6 @@ createEmployee: asyncHandler(async (req, res) => {
       req.user.id
     );
     
-    // Update employee onboarding status
     await User.updateOnboardingStatus(req.params.id, 'in_progress');
     
     sendSuccess(res, 200, 'Template assigned successfully', assignedTasks);
@@ -292,7 +308,6 @@ createEmployee: asyncHandler(async (req, res) => {
       return sendError(res, 404, 'Employee not found');
     }
     
-    // Implement reminder logic (email, notification, etc.)
     sendSuccess(res, 200, 'Reminder sent successfully');
   }),
 
@@ -319,13 +334,11 @@ createEmployee: asyncHandler(async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const userId = req.user.id;
 
-    // Verify current password
     const isValid = await User.verifyPassword(userId, currentPassword);
     if (!isValid) {
       return sendError(res, 400, 'Current password is incorrect');
     }
 
-    // Update to new password
     await User.updatePassword(userId, newPassword);
 
     sendSuccess(res, 200, 'Password changed successfully');
@@ -347,7 +360,7 @@ createEmployee: asyncHandler(async (req, res) => {
     const { status, notes } = req.body;
     const userId = req.user.id;
 
-    // Find the task and verify it belongs to the user
+
     const task = await EmployeeTask.findById(taskId);
     if (!task) {
       return sendError(res, 404, 'Task not found');
@@ -357,10 +370,8 @@ createEmployee: asyncHandler(async (req, res) => {
       return sendError(res, 403, 'You are not authorized to update this task');
     }
 
-    // Update task status
     const updatedTask = await EmployeeTask.updateStatus(taskId, status, notes);
 
-    // If task is completed, check if all tasks are completed for onboarding progress
     if (status === 'completed') {
       const progress = await User.getProgress(userId);
       if (progress.percentage === 100) {
@@ -404,14 +415,11 @@ createEmployee: asyncHandler(async (req, res) => {
   getNotifications: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     
-    // Get overdue tasks
     const overdueTasks = await EmployeeTask.findOverdueTasks(userId);
     
-    // Get pending documents
     const pendingDocuments = await Document.findByEmployeeId(userId)
       .then(docs => docs.filter(doc => doc.status === 'pending'));
     
-    // Get upcoming deadlines (tasks due in next 3 days)
     const upcomingTasks = await EmployeeTask.findUpcomingTasks(userId, 3);
     
     const notifications = {
@@ -453,13 +461,11 @@ createEmployee: asyncHandler(async (req, res) => {
   getTeamMembers: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     
-    // Get user's department
     const user = await User.findById(userId);
     if (!user || !user.department_id) {
       return sendSuccess(res, 200, 'No team members found', []);
     }
     
-    // Find other employees in the same department
     const teamMembers = await User.findByDepartment(user.department_id, userId);
     
     sendSuccess(res, 200, 'Team members retrieved successfully', teamMembers);
@@ -510,7 +516,6 @@ createEmployee: asyncHandler(async (req, res) => {
     
     const tasks = await EmployeeTask.findByEmployeeId(userId);
     
-    // Create timeline from tasks
     const timeline = tasks.map(task => ({
       id: task.id,
       title: task.title,

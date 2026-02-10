@@ -24,17 +24,45 @@ const dashboardController = {
   }),
   
   /**
-   * Get HR dashboard
+   * Get HR dashboard with analytics
    */
   getHRDashboard: asyncHandler(async (req, res) => {
     const stats = await analyticsService.getDashboardStats();
-    const recentEmployees = await User.findAll({ role: 'employee' });
-    const pendingDocuments = await Document.getPending();
     
-    sendSuccess(res, 200, 'Dashboard data retrieved successfully', {
+    const recentEmployees = await User.findAll({ 
+      role: 'employee',
+      limit: 5,
+      orderBy: 'createdAt',
+      order: 'DESC'
+    });
+    
+    const employeesWithProgress = await Promise.all(
+      recentEmployees.map(async (employee) => {
+        const tasks = await EmployeeTask.findByEmployeeId(employee.id);
+        const completedTasks = tasks.filter(t => t.status === 'completed').length;
+        const progressPercentage = tasks.length > 0 
+          ? Math.round((completedTasks / tasks.length) * 100) 
+          : 0;
+        
+        return {
+          id: employee.id,
+          name: employee.name,
+          email: employee.email,
+          position: employee.position,
+          department: employee.department,
+          onboardingStatus: employee.onboardingStatus,
+          progressPercentage,
+          startDate: employee.startDate,
+          completedAt: employee.completedAt,
+          createdAt: employee.createdAt,
+          updatedAt: employee.updatedAt
+        };
+      })
+    );
+    
+    sendSuccess(res, 200, 'HR Dashboard data retrieved successfully', {
       stats,
-      recentEmployees: recentEmployees.slice(0, 5),
-      pendingDocuments: pendingDocuments.slice(0, 5),
+      recentEmployees: employeesWithProgress,
     });
   }),
   
@@ -47,7 +75,7 @@ const dashboardController = {
     const ActivityLog = require('../models/ActivityLog');
     const recentActivity = await ActivityLog.getRecent(20);
     
-    sendSuccess(res, 200, 'Dashboard data retrieved successfully', {
+    sendSuccess(res, 200, 'Admin Dashboard data retrieved successfully', {
       stats,
       departmentAnalytics,
       recentActivity,

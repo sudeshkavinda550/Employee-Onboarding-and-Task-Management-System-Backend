@@ -1,129 +1,240 @@
-const { query } = require('../config/database');
-const logger = require('../utils/logger');
+const User = require('../models/User');
+const EmployeeTask = require('../models/EmployeeTask');
+const Task = require('../models/Task');
+const Department = require('../models/Department');
+const { Op } = require('sequelize');
 
 const analyticsService = {
   /**
-   * Get dashboard statistics
+   * Get overall dashboard statistics
    */
   getDashboardStats: async () => {
     try {
-      const result = await query(`
-        SELECT 
-          COUNT(DISTINCT u.id) as total_employees,
-          COUNT(DISTINCT u.id) FILTER (WHERE u.onboarding_status = 'in_progress') as onboarding_in_progress,
-          COUNT(DISTINCT u.id) FILTER (WHERE u.onboarding_status = 'completed') as onboarding_completed,
-          COUNT(DISTINCT et.id) FILTER (WHERE et.status = 'overdue') as overdue_tasks,
-          ROUND(AVG(EXTRACT(DAY FROM (u.onboarding_completed_date - u.start_date))), 0) as average_completion_days,
-          ROUND(AVG(completion_percentage.percentage), 2) as completion_rate
-        FROM users u
-        LEFT JOIN employee_tasks et ON u.id = et.employee_id
-        LEFT JOIN (
-          SELECT employee_id,
-                 COUNT(*) FILTER (WHERE status = 'completed')::numeric / NULLIF(COUNT(*), 0) * 100 as percentage
-          FROM employee_tasks
-          GROUP BY employee_id
-        ) completion_percentage ON u.id = completion_percentage.employee_id
-        WHERE u.role = 'employee'
-      `);
+      const totalEmployees = await User.count({ role: 'employee' });
       
-      return result.rows[0];
+      const onboardingInProgress = await User.count({ 
+        role: 'employee',
+        onboardingStatus: 'in_progress' 
+      });
+      
+      const onboardingCompleted = await User.count({ 
+        role: 'employee',
+        onboardingStatus: 'completed' 
+      });
+      
+      const now = new Date();
+      const overdueTasks = await EmployeeTask.count({
+        status: { $in: ['pending', 'in_progress'] },
+        dueDate: { $lt: now }
+      });
+      
+      const completedEmployees = await User.findAll({ 
+        role: 'employee',
+        onboardingStatus: 'completed',
+        completedAt: { $ne: null }
+      });
+      
+      let totalDays = 0;
+      completedEmployees.forEach(emp => {
+        if (emp.startDate && emp.completedAt) {
+          const days = Math.ceil(
+            (new Date(emp.completedAt) - new Date(emp.startDate)) / (1000 * 60 * 60 * 24)
+          );
+          totalDays += days;
+        }
+      });
+      
+      const averageCompletionDays = completedEmployees.length > 0 
+        ? Math.round((totalDays / completedEmployees.length) * 10) / 10 
+        : 0;
+      
+      const completionRate = totalEmployees > 0 
+        ? Math.round((onboardingCompleted / totalEmployees) * 100 * 100) / 100
+        : 0;
+      
+      return {
+        totalEmployees,
+        onboardingInProgress,
+        onboardingCompleted,
+        overdueTasks,
+        averageCompletionDays,
+        completionRate
+      };
     } catch (error) {
-      logger.error('Get dashboard stats error:', error);
+      console.error('Error calculating dashboard stats:', error);
       throw error;
     }
   },
-  
-  /**
-   * Get completion rates by period
-   */
-  getCompletionRates: async (period = 'month') => {
+
+/**
+ * Get completion rates by department
+ */
+getDepartmentCompletion: async () => {
     try {
-      let dateInterval;
-      switch (period) {
-        case 'week':
-          dateInterval = '7 days';
-          break;
-        case 'month':
-          dateInterval = '30 days';
-          break;
-        case 'quarter':
-          dateInterval = '90 days';
-          break;
-        case 'year':
-          dateInterval = '365 days';
-          break;
-        default:
-          dateInterval = '30 days';
+      const departments = await Department.findAll();
+      const labels = [];
+      const data = [];
+      
+      for (const dept of departments) {
+        const totalInDept = await User.count({ 
+          role: 'employee',
+          department: dept.id 
+        });
+        
+        const completedInDept = await User.count({ 
+          role: 'employee',
+          department: dept.id,
+          onboardingStatus: 'completed' 
+        });
+        
+        const completionPercentage = totalInDept > 0 
+          ? Math.round((completedInDept / totalInDept) * 100) 
+          : 0;
+        
+        labels.push(dept.name);
+        data.push(completionPercentage);
       }
       
-      const result = await query(`
-        SELECT 
-          DATE_TRUNC('day', completed_date) as date,
-          COUNT(*) as completed_count
-        FROM employee_tasks
-        WHERE status = 'completed' 
-          AND completed_date >= NOW() - INTERVAL '${dateInterval}'
-        GROUP BY DATE_TRUNC('day', completed_date)
-        ORDER BY date
-      `);
-      
-      return result.rows;
+      return {
+        labels,
+        data
+      };
     } catch (error) {
-      logger.error('Get completion rates error:', error);
+      console.error('Error getting department completion:', error);
       throw error;
     }
   },
-  
+
   /**
-   * Get department analytics
+   * Get task status distribution
+   */
+  getTaskStatusDistribution: async () => {
+    try {
+      const now = new Date();
+      
+      const completed = await EmployeeTask.count({ status: 'completed' });
+      
+      const inProgress = await EmployeeTask.count({ status: 'in_progress' });
+      
+      const pending = await EmployeeTask.count({ 
+        status: 'pending',
+        $or: [
+          { dueDate: { $gte: now } },
+          { dueDate: null }
+        ]
+      });
+      
+      const overdue = await EmployeeTask.count({
+        status: { $in: ['pending', 'in_progress'] },
+        dueDate: { $lt: now }
+      });
+      
+      return {
+        completed,
+        inProgress,
+        pending,
+        overdue
+      };
+    } catch (error) {
+      console.error('Error getting task status distribution:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get onboarding trends over time
+   */
+  getOnboardingTrends: async (period = 'month') => {
+    try {
+      const now = new Date();
+      let startDate;
+      
+      switch (period) {
+        case 'week':
+          startDate = new Date(now.setDate(now.getDate() - 7));
+          break;
+        case 'month':
+          startDate = new Date(now.setMonth(now.getMonth() - 1));
+          break;
+        case 'quarter':
+          startDate = new Date(now.setMonth(now.getMonth() - 3));
+          break;
+        case 'year':
+          startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+          break;
+        default:
+          startDate = new Date(now.setMonth(now.getMonth() - 1));
+      }
+      
+      const employees = await User.findAll({
+        role: 'employee',
+        createdAt: { $gte: startDate }
+      });
+      
+      const trends = {};
+      employees.forEach(emp => {
+        const date = new Date(emp.createdAt).toLocaleDateString();
+        trends[date] = (trends[date] || 0) + 1;
+      });
+      
+      return {
+        labels: Object.keys(trends),
+        data: Object.values(trends)
+      };
+    } catch (error) {
+      console.error('Error getting onboarding trends:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get department analytics for admin dashboard
    */
   getDepartmentAnalytics: async () => {
     try {
-      const result = await query(`
-        SELECT 
-          d.name as department,
-          COUNT(DISTINCT u.id) as total_employees,
-          COUNT(DISTINCT u.id) FILTER (WHERE u.onboarding_status = 'completed') as completed_onboarding,
-          ROUND(AVG(EXTRACT(DAY FROM (u.onboarding_completed_date - u.start_date))), 0) as average_completion_days,
-          ROUND(
-            COUNT(DISTINCT u.id) FILTER (WHERE u.onboarding_status = 'completed')::numeric / 
-            NULLIF(COUNT(DISTINCT u.id), 0) * 100, 
-            2
-          ) as completion_rate
-        FROM departments d
-        LEFT JOIN users u ON d.id = u.department_id
-        WHERE u.role = 'employee'
-        GROUP BY d.id, d.name
-        ORDER BY d.name
-      `);
+      const departments = await Department.findAll();
+      const analytics = [];
       
-      return result.rows;
+      for (const dept of departments) {
+        const totalEmployees = await User.count({ 
+          role: 'employee',
+          department: dept.id 
+        });
+        
+        const activeOnboarding = await User.count({ 
+          role: 'employee',
+          department: dept.id,
+          onboardingStatus: 'in_progress' 
+        });
+        
+        const completedOnboarding = await User.count({ 
+          role: 'employee',
+          department: dept.id,
+          onboardingStatus: 'completed' 
+        });
+        
+        analytics.push({
+          departmentId: dept.id,
+          departmentName: dept.name,
+          totalEmployees,
+          activeOnboarding,
+          completedOnboarding,
+          completionRate: totalEmployees > 0 
+            ? Math.round((completedOnboarding / totalEmployees) * 100) 
+            : 0
+        });
+      }
+      
+      return analytics;
     } catch (error) {
-      logger.error('Get department analytics error:', error);
+      console.error('Error getting department analytics:', error);
       throw error;
     }
-  },
-  
-  /**
-   * Get time to completion metrics
-   */
-  getTimeToCompletion: async () => {
-    try {
-      const result = await query(`
-        SELECT 
-          AVG(EXTRACT(DAY FROM (onboarding_completed_date - start_date))) as average_days,
-          MIN(EXTRACT(DAY FROM (onboarding_completed_date - start_date))) as min_days,
-          MAX(EXTRACT(DAY FROM (onboarding_completed_date - start_date))) as max_days
-        FROM users
-        WHERE onboarding_status = 'completed' AND role = 'employee'
-      `);
-      
-      return result.rows[0];
-    } catch (error) {
-      logger.error('Get time to completion error:', error);
-      throw error;
-    }
-  },
+  }
 };
 
-module.exports = analyticsService;
+module.exports = {
+  ...analyticsService,
+  getDepartmentCompletion: analyticsService.getDepartmentCompletion,
+  getTaskStatusDistribution: analyticsService.getTaskStatusDistribution
+};

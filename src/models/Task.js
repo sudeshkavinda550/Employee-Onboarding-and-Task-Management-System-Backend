@@ -96,6 +96,83 @@ const Task = {
     const promises = tasksArray.map(task => Task.create(task));
     return await Promise.all(promises);
   },
+  
+  /**
+   * Get all tasks with filters
+   */
+  getAllWithFilters: async (filters = {}) => {
+    const {
+      template_id,
+      task_type,
+      is_required,
+      search,
+      page = 1,
+      limit = 20
+    } = filters;
+    
+    let queryText = `
+      SELECT t.*, tm.name as template_name,
+      COUNT(*) OVER() as total_count
+      FROM tasks t
+      LEFT JOIN templates tm ON t.template_id = tm.id
+      WHERE 1=1
+    `;
+    
+    const params = [];
+    let paramCount = 1;
+    
+    if (template_id) {
+      queryText += ` AND t.template_id = $${paramCount}`;
+      params.push(template_id);
+      paramCount++;
+    }
+    
+    if (task_type) {
+      queryText += ` AND t.task_type = $${paramCount}`;
+      params.push(task_type);
+      paramCount++;
+    }
+    
+    if (is_required !== undefined) {
+      queryText += ` AND t.is_required = $${paramCount}`;
+      params.push(is_required);
+      paramCount++;
+    }
+    
+    if (search) {
+      queryText += ` AND (
+        t.title ILIKE $${paramCount} OR 
+        t.description ILIKE $${paramCount} OR
+        tm.name ILIKE $${paramCount}
+      )`;
+      params.push(`%${search}%`);
+      paramCount++;
+    }
+    
+    const offset = (page - 1) * limit;
+    queryText += `
+      ORDER BY t.order_index ASC, t.created_at DESC
+      LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
+    
+    params.push(limit, offset);
+    
+    const result = await query(queryText, params);
+    
+    const totalCount = result.rows.length > 0 ? parseInt(result.rows[0].total_count) : 0;
+    
+    return {
+      tasks: result.rows.map(row => {
+        const { total_count, ...task } = row;
+        return task;
+      }),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit)
+      }
+    };
+  }
 };
 
 module.exports = Task;

@@ -27,6 +27,22 @@ const analyticsController = {
     const analytics = await analyticsService.getDepartmentAnalytics();
     sendSuccess(res, 200, 'Department analytics retrieved successfully', analytics);
   }),
+
+  /**
+   * Get department completion 
+   */
+  getDepartmentCompletion: asyncHandler(async (req, res) => {
+    const completion = await analyticsService.getDepartmentCompletion();
+    sendSuccess(res, 200, 'Department completion retrieved successfully', completion);
+  }),
+
+  /**
+   * Get task status distribution
+   */
+  getTaskStatusDistribution: asyncHandler(async (req, res) => {
+    const distribution = await analyticsService.getTaskStatusDistribution();
+    sendSuccess(res, 200, 'Task status distribution retrieved successfully', distribution);
+  }),
   
   /**
    * Get time to completion metrics

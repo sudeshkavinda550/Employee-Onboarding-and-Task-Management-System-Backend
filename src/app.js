@@ -7,22 +7,20 @@ const rateLimit = require('express-rate-limit');
 const routes = require('./routes');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
+const analyticsRoutes = require('./routes/analyticsRoutes');
+const employeeRoutes = require('./routes/employeeRoutes'); 
+const taskRoutes = require('./routes/taskRoutes');
 
 const app = express();
 
-// Configure Helmet with specific options for images
+console.log('Analytics routes type:', typeof analyticsRoutes);
+
 app.use(
   helmet({
-    crossOriginResourcePolicy: false, 
-    crossOriginEmbedderPolicy: false, 
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginEmbedderPolicy: false,
   })
 );
-
-// OR configure Helmet more specifically:
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }, 
-  crossOriginEmbedderPolicy: false,
-}));
 
 const corsOptions = {
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -50,7 +48,6 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 app.use('/uploads', (req, res, next) => {
-  // Set CORS headers for static files
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -70,8 +67,16 @@ app.use((req, res, next) => {
   next();
 });
 
-// API routes
-console.log('Mounting routes at /api/v1, routes type:', typeof routes);
+console.log('Mounting /api/v1/analytics');
+app.use('/api/v1/analytics', analyticsRoutes);
+
+console.log('Mounting /api/v1/employees');
+app.use('/api/v1/employees', employeeRoutes);
+
+console.log('Mounting /api/v1/tasks'); 
+app.use('/api/v1/tasks', taskRoutes); 
+
+console.log('Mounting routes at /api/v1');
 app.use('/api/v1', routes);
 
 console.log('Registered routes:');
@@ -80,6 +85,14 @@ app._router.stack.forEach((r) => {
     console.log(`  ${Object.keys(r.route.methods)} ${r.route.path}`);
   } else if (r.name === 'router') {
     console.log(`  ROUTER: ${r.regexp}`);
+    if (r.handle && r.handle.stack) {
+      r.handle.stack.forEach((layer) => {
+        if (layer.route) {
+          const path = r.regexp.source.replace('^\\', '').replace('\\/?(?=\\/|$)', '');
+          console.log(`    ${Object.keys(layer.route.methods)} ${path}${layer.route.path}`);
+        }
+      });
+    }
   }
 });
 
