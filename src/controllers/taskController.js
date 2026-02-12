@@ -5,24 +5,17 @@ const { sendSuccess, sendError } = require('../utils/responseHandler');
 const { asyncHandler } = require('../middleware/errorHandler');
 
 const taskController = {
-  /**
-   * Get current user's tasks
-   */
   getMyTasks: asyncHandler(async (req, res) => {
     const tasks = await EmployeeTask.findByEmployeeId(req.user.id);
     sendSuccess(res, 200, 'Tasks retrieved successfully', tasks);
   }),
   
-  /**
-   * Get task by ID
-   */
   getTaskById: asyncHandler(async (req, res) => {
     const task = await EmployeeTask.findById(req.params.id);
     if (!task) {
       return sendError(res, 404, 'Task not found');
     }
     
-    // Check if user owns the task
     if (task.employee_id !== req.user.id && req.user.role === 'employee') {
       return sendError(res, 403, 'Access denied');
     }
@@ -30,9 +23,6 @@ const taskController = {
     sendSuccess(res, 200, 'Task retrieved successfully', task);
   }),
   
-  /**
-   * Update task status
-   */
   updateTaskStatus: asyncHandler(async (req, res) => {
     const { status, notes } = req.body;
     
@@ -49,9 +39,6 @@ const taskController = {
     sendSuccess(res, 200, 'Task status updated successfully', updatedTask);
   }),
   
-  /**
-   * Upload task document
-   */
   uploadTaskDocument: asyncHandler(async (req, res) => {
     if (!req.file) {
       return sendError(res, 400, 'No file uploaded');
@@ -73,36 +60,23 @@ const taskController = {
     sendSuccess(res, 201, 'Document uploaded successfully', document);
   }),
   
-  /**
-   * Get task progress
-   */
   getTaskProgress: asyncHandler(async (req, res) => {
     const progress = await EmployeeTask.getProgress(req.user.id);
     sendSuccess(res, 200, 'Progress retrieved successfully', progress);
   }),
   
-  /**
-   * Mark task as read
-   */
   markTaskAsRead: asyncHandler(async (req, res) => {
     const task = await EmployeeTask.markAsRead(req.params.id);
     sendSuccess(res, 200, 'Task marked as read', task);
   }),
   
-  /**
-   * Get overdue tasks
-   */
   getOverdueTasks: asyncHandler(async (req, res) => {
     const tasks = await EmployeeTask.getOverdueTasks(req.user.id);
     sendSuccess(res, 200, 'Overdue tasks retrieved successfully', tasks);
   }),
   
-  /**
-   * Get task statistics for dashboard
-   */
   getTaskStats: asyncHandler(async (req, res) => {
     const employeeId = req.user.id;
-    
     const progress = await EmployeeTask.getProgress(employeeId);
     
     sendSuccess(res, 200, 'Task statistics retrieved successfully', {
@@ -115,12 +89,8 @@ const taskController = {
     });
   }),
   
-  /**
-   * Get task summary for dashboard 
-   */
   getTaskSummary: asyncHandler(async (req, res) => {
     const employeeId = req.user.id;
-    
     const tasks = await EmployeeTask.findByEmployeeId(employeeId);
     
     const formattedTasks = tasks.map(task => ({
@@ -145,12 +115,8 @@ const taskController = {
     sendSuccess(res, 200, 'Task summary retrieved successfully', formattedTasks);
   }),
   
-  /**
-   * Get today's tasks 
-   */
   getTodayTasks: asyncHandler(async (req, res) => {
     const employeeId = req.user.id;
-    
     const tasks = await EmployeeTask.getTodayTasks(employeeId);
     
     const formattedTasks = tasks.map(task => ({
@@ -166,9 +132,6 @@ const taskController = {
     sendSuccess(res, 200, "Today's tasks retrieved successfully", formattedTasks);
   }),
   
-  /**
-   * Bulk update task statuses 
-   */
   bulkUpdateTaskStatus: asyncHandler(async (req, res) => {
     const { updates } = req.body;
     const employeeId = req.user.id;
@@ -203,12 +166,8 @@ const taskController = {
     });
   }),
   
-  /**
-   * Get task checklist analytics 
-   */
   getTaskAnalytics: asyncHandler(async (req, res) => {
     const employeeId = req.user.id;
-    
     const progress = await EmployeeTask.getProgress(employeeId);
     const detailedStats = await EmployeeTask.getDetailedStatistics(employeeId);
     
@@ -225,9 +184,6 @@ const taskController = {
     });
   }),
   
-  /**
-   * Get filtered tasks 
-   */
   getFilteredTasks: asyncHandler(async (req, res) => {
     const employeeId = req.user.id;
     const filters = {
@@ -241,13 +197,9 @@ const taskController = {
     };
     
     const result = await EmployeeTask.getTasksWithFilters(employeeId, filters);
-    
     sendSuccess(res, 200, 'Filtered tasks retrieved successfully', result);
   }),
   
-  /**
-   * Get all tasks (HR/Admin)
-   */
   getAllTasks: asyncHandler(async (req, res) => {
     const filters = {
       employee_id: req.query.employee_id,
@@ -257,32 +209,20 @@ const taskController = {
     sendSuccess(res, 200, 'Tasks retrieved successfully', []);
   }),
   
-  /**
-   * Get employee tasks (HR/Admin)
-   */
   getEmployeeTasks: asyncHandler(async (req, res) => {
     const tasks = await EmployeeTask.findByEmployeeId(req.params.employeeId);
     sendSuccess(res, 200, 'Tasks retrieved successfully', tasks);
   }),
   
-  /**
-   * Assign task (HR/Admin)
-   */
   assignTask: asyncHandler(async (req, res) => {
     sendSuccess(res, 201, 'Task assigned successfully');
   }),
   
-  /**
-   * Update task (HR/Admin)
-   */
   updateTask: asyncHandler(async (req, res) => {
     const task = await Task.update(req.params.id, req.body);
     sendSuccess(res, 200, 'Task updated successfully', task);
   }),
   
-  /**
-   * Delete task (HR/Admin)
-   */
   deleteTask: asyncHandler(async (req, res) => {
     await Task.delete(req.params.id);
     sendSuccess(res, 200, 'Task deleted successfully');

@@ -6,9 +6,6 @@ const { sendSuccess, sendError } = require('../utils/responseHandler');
 const { asyncHandler } = require('../middleware/errorHandler');
 
 const templateController = {
-  /**
-   * Get all templates
-   */
   getAllTemplates: asyncHandler(async (req, res) => {
     const filters = {
       department_id: req.query.department_id,
@@ -19,9 +16,6 @@ const templateController = {
     sendSuccess(res, 200, 'Templates retrieved successfully', templates);
   }),
   
-  /**
-   * Get template by ID
-   */
   getTemplateById: asyncHandler(async (req, res) => {
     const template = await templateService.getTemplateWithTasks(req.params.id);
     
@@ -32,9 +26,6 @@ const templateController = {
     sendSuccess(res, 200, 'Template retrieved successfully', template);
   }),
   
-  /**
-   * Create template
-   */
   createTemplate: asyncHandler(async (req, res) => {
     const { tasks, ...templateData } = req.body;
     
@@ -47,30 +38,22 @@ const templateController = {
     sendSuccess(res, 201, 'Template created successfully', template);
   }),
   
-  /**
-   * Update template
-   */
   updateTemplate: asyncHandler(async (req, res) => {
     const { tasks, ...templateData } = req.body;
     
-    // FIX: Check if template exists first
     const existingTemplate = await Template.findById(req.params.id);
     if (!existingTemplate) {
       return sendError(res, 404, 'Template not found');
     }
     
-    // Update template
     const template = await Template.update(req.params.id, templateData);
     
-    // If tasks are provided, delete old tasks and create new ones
     if (tasks && Array.isArray(tasks)) {
-      // Delete existing tasks
       const existingTasks = await Task.findByTemplateId(req.params.id);
       for (const task of existingTasks) {
         await Task.delete(task.id);
       }
       
-      // Create new tasks
       const tasksWithTemplateId = tasks.map(task => ({
         ...task,
         template_id: req.params.id,
@@ -78,23 +61,16 @@ const templateController = {
       await Task.bulkCreate(tasksWithTemplateId);
     }
     
-    // Get updated template with tasks
     const updatedTemplate = await templateService.getTemplateWithTasks(req.params.id);
-    
     sendSuccess(res, 200, 'Template updated successfully', updatedTemplate);
   }),
   
-  /**
-   * Delete template
-   */
   deleteTemplate: asyncHandler(async (req, res) => {
-    // FIX: Check if template exists
     const template = await Template.findById(req.params.id);
     if (!template) {
       return sendError(res, 404, 'Template not found');
     }
     
-    // FIX: Check if template is assigned to any employees
     const { query } = require('../config/database');
     const assignmentCheck = await query(
       'SELECT COUNT(*) as count FROM employee_tasks WHERE template_id = $1',
@@ -113,11 +89,7 @@ const templateController = {
     sendSuccess(res, 200, 'Template deleted successfully');
   }),
   
-  /**
-   * Duplicate template
-   */
   duplicateTemplate: asyncHandler(async (req, res) => {
-    // FIX: Check if template exists
     const existingTemplate = await Template.findById(req.params.id);
     if (!existingTemplate) {
       return sendError(res, 404, 'Template not found');
@@ -128,11 +100,7 @@ const templateController = {
     sendSuccess(res, 201, 'Template duplicated successfully', duplicatedTemplate);
   }),
   
-  /**
-   * Get template tasks
-   */
   getTemplateTasks: asyncHandler(async (req, res) => {
-    // FIX: Check if template exists
     const template = await Template.findById(req.params.id);
     if (!template) {
       return sendError(res, 404, 'Template not found');
@@ -142,11 +110,7 @@ const templateController = {
     sendSuccess(res, 200, 'Tasks retrieved successfully', tasks);
   }),
   
-  /**
-   * Add task to template
-   */
   addTaskToTemplate: asyncHandler(async (req, res) => {
-    // FIX: Check if template exists
     const template = await Template.findById(req.params.id);
     if (!template) {
       return sendError(res, 404, 'Template not found');
@@ -160,17 +124,12 @@ const templateController = {
     sendSuccess(res, 201, 'Task added successfully', task);
   }),
   
-  /**
-   * Remove task from template
-   */
   removeTaskFromTemplate: asyncHandler(async (req, res) => {
-    // FIX: Check if task exists
     const task = await Task.findById(req.params.taskId);
     if (!task) {
       return sendError(res, 404, 'Task not found');
     }
     
-    // FIX: Verify task belongs to the template
     if (task.template_id !== req.params.templateId) {
       return sendError(res, 400, 'Task does not belong to this template');
     }
@@ -179,17 +138,12 @@ const templateController = {
     sendSuccess(res, 200, 'Task removed successfully');
   }),
   
-  /**
-   * Update template task
-   */
   updateTemplateTask: asyncHandler(async (req, res) => {
-    // FIX: Check if task exists
     const existingTask = await Task.findById(req.params.taskId);
     if (!existingTask) {
       return sendError(res, 404, 'Task not found');
     }
     
-    // FIX: Verify task belongs to the template
     if (existingTask.template_id !== req.params.templateId) {
       return sendError(res, 400, 'Task does not belong to this template');
     }
@@ -198,25 +152,19 @@ const templateController = {
     sendSuccess(res, 200, 'Task updated successfully', task);
   }),
   
-  /**
-   * Assign template to employee
-   */
   assignTemplateToEmployee: asyncHandler(async (req, res) => {
     const { employeeId, id: templateId } = req.params;
     
-    // FIX 1: Check if template exists
     const template = await Template.findById(templateId);
     if (!template) {
       return sendError(res, 404, 'Template not found');
     }
     
-    // FIX 2: Check if template has tasks
     const tasks = await Task.findByTemplateId(templateId);
     if (!tasks || tasks.length === 0) {
       return sendError(res, 400, 'Cannot assign template without tasks');
     }
     
-    // FIX 3: Check if employee exists and has 'employee' role
     const { query } = require('../config/database');
     const employeeCheck = await query(
       'SELECT id, role, is_active FROM users WHERE id = $1',
@@ -237,21 +185,18 @@ const templateController = {
       return sendError(res, 400, 'Only employees can be assigned templates');
     }
     
-    // FIX 4: Check if template is already assigned to this employee
-   // NEW - Check via tasks since employee_tasks doesn't have template_id column
-const existingAssignment = await query(
-  `SELECT COUNT(*) as count 
-   FROM employee_tasks et
-   JOIN tasks t ON et.task_id = t.id
-   WHERE et.employee_id = $1 AND t.template_id = $2`,
-  [employeeId, templateId]
-);
+    const existingAssignment = await query(
+      `SELECT COUNT(*) as count 
+       FROM employee_tasks et
+       JOIN tasks t ON et.task_id = t.id
+       WHERE et.employee_id = $1 AND t.template_id = $2`,
+      [employeeId, templateId]
+    );
     
     if (parseInt(existingAssignment.rows[0].count) > 0) {
       return sendError(res, 400, 'Template is already assigned to this employee');
     }
     
-    // Assign template
     const assignedTasks = await EmployeeTask.assignToEmployee(
       employeeId,
       templateId,
@@ -261,13 +206,8 @@ const existingAssignment = await query(
     sendSuccess(res, 200, 'Template assigned successfully', assignedTasks);
   }),
   
-  /**
-   * Get employees for assignment (only employees, not HR or admin)
-   */
   getEmployeesForAssignment: asyncHandler(async (req, res) => {
     const { query } = require('../config/database');
-    
-    // FIX: Add optional template_id to exclude already assigned employees
     const templateId = req.query.template_id;
     
     let queryText = `
@@ -282,7 +222,6 @@ const existingAssignment = await query(
         d.name as department_name
     `;
     
-    // Add assignment status if template_id is provided
     if (templateId) {
       queryText += `,
         CASE 
@@ -309,13 +248,9 @@ const existingAssignment = await query(
     sendSuccess(res, 200, 'Employees retrieved successfully', result.rows);
   }),
   
-  /**
-   * Get employees assigned to a template with their progress
-   */
   getTemplateAssignments: asyncHandler(async (req, res) => {
     const { id: templateId } = req.params;
     
-    // FIX: Check if template exists
     const template = await Template.findById(templateId);
     if (!template) {
       return sendError(res, 404, 'Template not found');
@@ -354,21 +289,14 @@ const existingAssignment = await query(
     sendSuccess(res, 200, 'Template assignments retrieved successfully', result.rows);
   }),
   
-  /**
-   * Get all employees with onboarding progress
-   */
   getAllEmployeesProgress: asyncHandler(async (req, res) => {
     const employees = await EmployeeTask.getAllEmployeesProgress();
     sendSuccess(res, 200, 'Employee progress retrieved successfully', employees);
   }),
   
-  /**
-   * Get template analytics
-   */
   getTemplateAnalytics: asyncHandler(async (req, res) => {
     const { id: templateId } = req.params;
     
-    // FIX: Check if template exists
     const template = await Template.findById(templateId);
     if (!template) {
       return sendError(res, 404, 'Template not found');
@@ -376,7 +304,6 @@ const existingAssignment = await query(
     
     const { query } = require('../config/database');
     
-    // Get basic template stats
     const statsResult = await query(
       `SELECT 
         COUNT(DISTINCT et.employee_id) as total_assignments,
@@ -392,7 +319,6 @@ const existingAssignment = await query(
       [templateId]
     );
     
-    // FIX: Return empty object with zero values if no data
     const stats = statsResult.rows[0] || {
       total_assignments: 0,
       completed_tasks: 0,

@@ -4,14 +4,42 @@ const logger = require('../utils/logger');
 
 const fileService = {
   /**
-   * Delete file
+   * Delete file with better error handling
    */
   deleteFile: async (filePath) => {
     try {
+      const exists = await fileService.fileExists(filePath);
+      
+      if (!exists) {
+        logger.warn(`File not found for deletion: ${filePath}`);
+        return { success: true, message: 'File already deleted or does not exist' };
+      }
+      
       await fs.unlink(filePath);
-      logger.info(`File deleted: ${filePath}`);
+      logger.info(`File deleted successfully: ${filePath}`);
+      return { success: true, message: 'File deleted successfully' };
+      
     } catch (error) {
-      logger.error('File deletion error:', error);
+      logger.error('File deletion error:', {
+        filePath,
+        error: error.message,
+        code: error.code,
+        stack: error.stack
+      });
+      
+      if (error.code === 'ENOENT') {
+        logger.warn('File already deleted (ENOENT)');
+        return { success: true, message: 'File already deleted' };
+      }
+      
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
+        throw new Error('Permission denied to delete file');
+      }
+      
+      if (error.code === 'EBUSY') {
+        throw new Error('File is currently in use');
+      }
+      
       throw error;
     }
   },
@@ -21,9 +49,9 @@ const fileService = {
    */
   fileExists: async (filePath) => {
     try {
-      await fs.access(filePath);
+      await fs.access(filePath, fs.constants.F_OK);
       return true;
-    } catch {
+    } catch (error) {
       return false;
     }
   },

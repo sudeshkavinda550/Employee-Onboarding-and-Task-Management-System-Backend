@@ -6,9 +6,6 @@ const { sendSuccess, sendError } = require('../utils/responseHandler');
 const { asyncHandler } = require('../middleware/errorHandler');
 
 const employeeController = {
-  /**
-   * Get current user profile (Employee profile)
-   */
   getProfile: asyncHandler(async (req, res) => {
     const user = await User.findById(req.user.id);
     
@@ -24,9 +21,6 @@ const employeeController = {
     });
   }),
   
-  /**
-   * Update current user profile (Employee profile)
-   */
   updateProfile: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     const updateData = { ...req.body };
@@ -49,9 +43,6 @@ const employeeController = {
     sendSuccess(res, 200, 'Profile updated successfully', updatedUser);
   }),
   
-  /**
-   * Get employee dashboard data
-   */
   getDashboard: asyncHandler(async (req, res) => {
     const stats = await User.getDashboardStats(req.user.id);
     const tasks = await EmployeeTask.findByEmployeeId(req.user.id);
@@ -64,17 +55,11 @@ const employeeController = {
     });
   }),
   
-  /**
-   * Get employee documents
-   */
   getDocuments: asyncHandler(async (req, res) => {
     const documents = await Document.findByEmployeeId(req.user.id);
     sendSuccess(res, 200, 'Documents retrieved successfully', documents);
   }),
   
-  /**
-   * Get all employees (HR/Admin)
-   */
   getAllEmployees: asyncHandler(async (req, res) => {
     const filters = {
       role: 'employee',
@@ -87,9 +72,6 @@ const employeeController = {
     sendSuccess(res, 200, 'Employees retrieved successfully', employees);
   }),
   
-  /**
-   * Get employee by ID (HR/Admin)
-   */
   getEmployeeById: asyncHandler(async (req, res) => {
     const employee = await User.findById(req.params.id);
     if (!employee) {
@@ -110,108 +92,94 @@ const employeeController = {
     });
   }),
   
-/**
- * Create employee (HR/Admin)
- */
-createEmployee: asyncHandler(async (req, res) => {
-  const { query } = require('../config/database');
-  const bcrypt = require('bcryptjs');
-  const emailService = require('../config/email');
-  
-  const {
-    name,
-    email,
-    password,
-    position,
-    department_id,
-    start_date,
-    phone,
-    address
-  } = req.body;
-
-  if (!name || !email) {
-    return sendError(res, 400, 'Name and email are required');
-  }
-
-  try {
-    const existingUser = await query(
-      'SELECT id FROM users WHERE email = $1',
-      [email]
-    );
-
-    if (existingUser.rows.length > 0) {
-      return sendError(res, 400, 'Email already exists');
-    }
-
-    let employee_id = req.body.employee_id;
-    if (!employee_id) {
-      const date = new Date();
-      const year = date.getFullYear().toString().slice(-2);
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-      employee_id = `EMP${year}${month}${random}`;
-    }
-
-    const plainPassword = password || 
-      Math.random().toString(36).slice(-8) + 
-      Math.random().toString(36).slice(-4).toUpperCase() + '1!';
+  createEmployee: asyncHandler(async (req, res) => {
+    const { query } = require('../config/database');
+    const bcrypt = require('bcryptjs');
+    const emailService = require('../config/email');
     
-    let department_name = null;
-    if (department_id) {
-      const deptResult = await query(
-        'SELECT name FROM departments WHERE id = $1',
-        [department_id]
-      );
-      department_name = deptResult.rows[0]?.name;
+    const {
+      name,
+      email,
+      password,
+      position,
+      department_id,
+      start_date,
+      phone,
+      address
+    } = req.body;
+
+    if (!name || !email) {
+      return sendError(res, 400, 'Name and email are required');
     }
 
-    console.log('Attempting to send credentials email to:', email);
     try {
-      await emailService.sendEmployeeCredentialsEmail({ 
-        name: name,
-        email: email,
-        employeeId: employee_id,
-        password: plainPassword,
-        position: position,
-        startDate: start_date,
-        department: department_name
+      const existingUser = await query(
+        'SELECT id FROM users WHERE email = $1',
+        [email]
+      );
+
+      if (existingUser.rows.length > 0) {
+        return sendError(res, 400, 'Email already exists');
+      }
+
+      let employee_id = req.body.employee_id;
+      if (!employee_id) {
+        const date = new Date();
+        const year = date.getFullYear().toString().slice(-2);
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+        employee_id = `EMP${year}${month}${random}`;
+      }
+
+      const plainPassword = password || 
+        Math.random().toString(36).slice(-8) + 
+        Math.random().toString(36).slice(-4).toUpperCase() + '1!';
+      
+      let department_name = null;
+      if (department_id) {
+        const deptResult = await query(
+          'SELECT name FROM departments WHERE id = $1',
+          [department_id]
+        );
+        department_name = deptResult.rows[0]?.name;
+      }
+
+      try {
+        await emailService.sendEmployeeCredentialsEmail({ 
+          name: name,
+          email: email,
+          employeeId: employee_id,
+          password: plainPassword,
+          position: position,
+          startDate: start_date,
+          department: department_name
+        });
+      } catch (emailError) {
+        // Email failed, continue with employee creation
+      }
+
+      const hashedPassword = await bcrypt.hash(plainPassword, 10);
+
+      const result = await query(
+        `INSERT INTO users 
+         (name, email, password, employee_id, position, department_id, start_date, phone, address, role, onboarding_status, is_active, email_verified)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'employee', 'not_started', true, false)
+         RETURNING id, name, email, employee_id, position, department_id, start_date, phone, address, onboarding_status, is_active, created_at`,
+        [name, email, hashedPassword, employee_id, position, department_id || null, start_date, phone || null, address || null]
+      );
+
+      const newEmployee = result.rows[0];
+
+      sendSuccess(res, 201, 'Employee created successfully. Welcome email sent with login credentials.', {
+        ...newEmployee,
+        department_name: department_name
       });
-      console.log('Welcome email sent successfully to:', email);
-    } catch (emailError) {
-      console.error('Email service error details:', {
-        message: emailError.message,
-        stack: emailError.stack,
-        name: emailError.name
-      });
-      console.log('WARNING: Employee will be created but email will not be sent');
+
+    } catch (error) {
+      return sendError(res, 500, 'Failed to create employee: ' + error.message);
     }
-
-    const hashedPassword = await bcrypt.hash(plainPassword, 10);
-
-    const result = await query(
-      `INSERT INTO users 
-       (name, email, password, employee_id, position, department_id, start_date, phone, address, role, onboarding_status, is_active, email_verified)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'employee', 'not_started', true, false)
-       RETURNING id, name, email, employee_id, position, department_id, start_date, phone, address, onboarding_status, is_active, created_at`,
-      [name, email, hashedPassword, employee_id, position, department_id || null, start_date, phone || null, address || null]
-    );
-
-    const newEmployee = result.rows[0];
-
-    sendSuccess(res, 201, 'Employee created successfully. Welcome email sent with login credentials.', {
-      ...newEmployee,
-      department_name: department_name
-    });
-
-  } catch (error) {
-    console.error('Error creating employee:', error);
-    return sendError(res, 500, 'Failed to create employee: ' + error.message);
-  }
-}),
+  }),
   
-  /**
-   * Update employee (HR/Admin)
-   */
   updateEmployee: asyncHandler(async (req, res) => {
     const employee = await User.findById(req.params.id);
     
@@ -232,51 +200,43 @@ createEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Employee updated successfully', updatedEmployee);
   }),
   
-  /**
- * Delete employee (HR/Admin)
- */
-deleteEmployee: asyncHandler(async (req, res) => {
-  const employeeId = req.params.id;
-  
-  const employee = await User.findById(employeeId);
-  
-  if (!employee) {
-    return sendError(res, 404, 'Employee not found');
-  }
-  
-  if (employee.role !== 'employee') {
-    return sendError(res, 400, 'Can only delete employee accounts');
-  }
-  
-  if (req.user.id === employeeId) {
-    return sendError(res, 400, 'Cannot delete your own account');
-  }
-  
-  try {
-    const deleted = await User.delete(employeeId);
+  deleteEmployee: asyncHandler(async (req, res) => {
+    const employeeId = req.params.id;
     
-    sendSuccess(res, 200, 'Employee deleted permanently', {
-      deleted: {
-        id: deleted.id,
-        name: deleted.name,
-        email: deleted.email
-      }
-    });
+    const employee = await User.findById(employeeId);
     
-  } catch (error) {
-    console.error('Delete error:', error);
-    
-    if (error.code === '23503') {
-      return sendError(res, 409, 'Cannot delete: Foreign key constraint');
+    if (!employee) {
+      return sendError(res, 404, 'Employee not found');
     }
     
-    return sendError(res, 500, `Delete failed: ${error.message}`);
-  }
-}),
+    if (employee.role !== 'employee') {
+      return sendError(res, 400, 'Can only delete employee accounts');
+    }
+    
+    if (req.user.id === employeeId) {
+      return sendError(res, 400, 'Cannot delete your own account');
+    }
+    
+    try {
+      const deleted = await User.delete(employeeId);
+      
+      sendSuccess(res, 200, 'Employee deleted permanently', {
+        deleted: {
+          id: deleted.id,
+          name: deleted.name,
+          email: deleted.email
+        }
+      });
+      
+    } catch (error) {
+      if (error.code === '23503') {
+        return sendError(res, 409, 'Cannot delete: Foreign key constraint');
+      }
+      
+      return sendError(res, 500, `Delete failed: ${error.message}`);
+    }
+  }),
   
-  /**
-   * Assign template to employee (HR/Admin)
-   */
   assignTemplate: asyncHandler(async (req, res) => {
     const { templateId } = req.body;
     const assignedTasks = await taskService.assignTemplateToEmployee(
@@ -290,17 +250,11 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Template assigned successfully', assignedTasks);
   }),
   
-  /**
-   * Get employee progress (HR/Admin)
-   */
   getEmployeeProgress: asyncHandler(async (req, res) => {
     const progress = await User.getProgress(req.params.id);
     sendSuccess(res, 200, 'Progress retrieved successfully', progress);
   }),
   
-  /**
-   * Send reminder to employee (HR/Admin)
-   */
   sendReminder: asyncHandler(async (req, res) => {
     const employee = await User.findById(req.params.id);
     
@@ -311,9 +265,6 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Reminder sent successfully');
   }),
 
-  /**
-   * Upload profile picture
-   */
   uploadProfilePicture: asyncHandler(async (req, res) => {
     if (!req.file) {
       return sendError(res, 400, 'No file uploaded');
@@ -327,9 +278,6 @@ deleteEmployee: asyncHandler(async (req, res) => {
     });
   }),
 
-  /**
-   * Change password for current user
-   */
   changePassword: asyncHandler(async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const userId = req.user.id;
@@ -344,22 +292,15 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Password changed successfully');
   }),
 
-  /**
-   * Get employee tasks
-   */
   getEmployeeTasks: asyncHandler(async (req, res) => {
     const tasks = await EmployeeTask.findByEmployeeId(req.user.id);
     sendSuccess(res, 200, 'Tasks retrieved successfully', tasks);
   }),
 
-  /**
-   * Update task status for current user
-   */
   updateTaskStatus: asyncHandler(async (req, res) => {
     const { taskId } = req.params;
     const { status, notes } = req.body;
     const userId = req.user.id;
-
 
     const task = await EmployeeTask.findById(taskId);
     if (!task) {
@@ -382,9 +323,6 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Task status updated successfully', updatedTask);
   }),
 
-  /**
-   * Get employee statistics
-   */
   getEmployeeStats: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     
@@ -409,9 +347,6 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Statistics retrieved successfully', stats);
   }),
 
-  /**
-   * Get employee notifications
-   */
   getNotifications: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     
@@ -447,17 +382,10 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Notifications retrieved successfully', notifications);
   }),
 
-  /**
-   * Mark notification as read
-   */
   markNotificationAsRead: asyncHandler(async (req, res) => {
-
     sendSuccess(res, 200, 'Notification marked as read');
   }),
 
-  /**
-   * Get employee's team members
-   */
   getTeamMembers: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     
@@ -471,9 +399,6 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Team members retrieved successfully', teamMembers);
   }),
 
-  /**
-   * Get employee's manager details
-   */
   getManagerDetails: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     
@@ -497,20 +422,13 @@ deleteEmployee: asyncHandler(async (req, res) => {
     });
   }),
 
-  /**
-   * Submit feedback
-   */
   submitFeedback: asyncHandler(async (req, res) => {
     const { feedback, rating, type } = req.body;
     const userId = req.user.id;
-
     
     sendSuccess(res, 201, 'Feedback submitted successfully');
   }),
 
-  /**
-   * Get employee onboarding timeline
-   */
   getOnboardingTimeline: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     
@@ -531,9 +449,6 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Onboarding timeline retrieved successfully', timeline);
   }),
 
-  /**
-   * Request time off
-   */
   requestTimeOff: asyncHandler(async (req, res) => {
     const { startDate, endDate, reason, type } = req.body;
     const userId = req.user.id;
@@ -541,18 +456,12 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 201, 'Time off request submitted successfully');
   }),
 
-  /**
-   * Get employee time off requests
-   */
   getTimeOffRequests: asyncHandler(async (req, res) => {
     const userId = req.user.id;
 
     sendSuccess(res, 200, 'Time off requests retrieved successfully', []);
   }),
 
-  /**
-   * Get employee attendance
-   */
   getAttendance: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     const { month, year } = req.query;
@@ -569,37 +478,6 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Attendance retrieved successfully', attendance);
   }),
 
-  /**
-   * Get employee performance reviews
-   */
-  getPerformanceReviews: asyncHandler(async (req, res) => {
-    const userId = req.user.id;
-    
-    const reviews = [
-      {
-        id: 1,
-        period: 'Q1 2024',
-        rating: 4.5,
-        reviewer: 'John Doe',
-        reviewDate: '2024-03-31',
-        comments: 'Excellent performance this quarter'
-      },
-      {
-        id: 2,
-        period: 'Q4 2023',
-        rating: 4.0,
-        reviewer: 'Jane Smith',
-        reviewDate: '2023-12-31',
-        comments: 'Good work, keep improving'
-      }
-    ];
-    
-    sendSuccess(res, 200, 'Performance reviews retrieved successfully', reviews);
-  }),
-
-  /**
-   * Update employee preferences
-   */
   updatePreferences: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     const preferences = req.body;
@@ -607,9 +485,6 @@ deleteEmployee: asyncHandler(async (req, res) => {
     sendSuccess(res, 200, 'Preferences updated successfully');
   }),
 
-  /**
-   * Get employee preferences
-   */
   getPreferences: asyncHandler(async (req, res) => {
     const userId = req.user.id;
     
