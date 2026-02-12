@@ -13,8 +13,6 @@ const taskRoutes = require('./routes/taskRoutes');
 
 const app = express();
 
-console.log('Analytics routes type:', typeof analyticsRoutes);
-
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -67,34 +65,10 @@ app.use((req, res, next) => {
   next();
 });
 
-console.log('Mounting /api/v1/analytics');
 app.use('/api/v1/analytics', analyticsRoutes);
-
-console.log('Mounting /api/v1/employees');
 app.use('/api/v1/employees', employeeRoutes);
-
-console.log('Mounting /api/v1/tasks'); 
 app.use('/api/v1/tasks', taskRoutes); 
-
-console.log('Mounting routes at /api/v1');
 app.use('/api/v1', routes);
-
-console.log('Registered routes:');
-app._router.stack.forEach((r) => {
-  if (r.route) {
-    console.log(`  ${Object.keys(r.route.methods)} ${r.route.path}`);
-  } else if (r.name === 'router') {
-    console.log(`  ROUTER: ${r.regexp}`);
-    if (r.handle && r.handle.stack) {
-      r.handle.stack.forEach((layer) => {
-        if (layer.route) {
-          const path = r.regexp.source.replace('^\\', '').replace('\\/?(?=\\/|$)', '');
-          console.log(`    ${Object.keys(layer.route.methods)} ${path}${layer.route.path}`);
-        }
-      });
-    }
-  }
-});
 
 app.use(notFound);
 app.use(errorHandler);

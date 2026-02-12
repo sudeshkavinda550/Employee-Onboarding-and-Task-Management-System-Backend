@@ -1,4 +1,5 @@
 const Document = require('../models/Document');
+const User = require('../models/User');
 const emailService = require('../services/emailService');
 const notificationService = require('../services/notificationService');
 const fileService = require('../services/fileService');
@@ -211,43 +212,133 @@ const documentController = {
   }),
   
   approveDocument: asyncHandler(async (req, res) => {
-    const document = await Document.approve(req.params.id, req.user.id);
+    console.log('[approveDocument] Approving document:', req.params.id);
+    console.log('[approveDocument] Reviewed by:', req.user.id);
     
-    await notificationService.sendDocumentApprovedNotification(
-      document.employee_id,
-      document.original_filename
-    );
-    
-    const User = require('../models/User');
-    const employee = await User.findById(document.employee_id);
-    await emailService.sendDocumentApprovedEmail(
-      employee.email,
-      employee.name,
-      document.original_filename
-    );
-    
-    sendSuccess(res, 200, 'Document approved successfully', document);
+    try {
+      const document = await Document.approve(req.params.id, req.user.id);
+      console.log('[approveDocument] Document approved successfully:', document.id);
+      
+      if (document.task_id) {
+        try {
+          await query(
+            `UPDATE employee_tasks 
+             SET status = 'completed', 
+                 updated_at = CURRENT_TIMESTAMP 
+             WHERE id = $1`,
+            [document.task_id]
+          );
+          console.log('[approveDocument] Task updated to completed:', document.task_id);
+        } catch (taskError) {
+          console.error('[approveDocument] Error updating task (non-critical):', taskError);
+        }
+      }
+      
+      let employee = null;
+      try {
+        employee = await User.findById(document.employee_id);
+        console.log('[approveDocument] Employee found:', employee ? employee.email : 'No');
+      } catch (userError) {
+        console.error('[approveDocument] Error fetching employee:', userError);
+      }
+      
+      if (employee) {
+        Promise.all([
+          notificationService.sendDocumentApprovedNotification(
+            document.employee_id,
+            document.original_filename
+          ).catch(err => console.error('[approveDocument] Notification error:', err)),
+          
+          emailService.sendDocumentApprovedEmail(
+            employee.email,
+            employee.name,
+            document.original_filename
+          ).catch(err => console.error('[approveDocument] Email error:', err))
+        ]);
+      } else {
+        console.log('[approveDocument] Employee not found, skipping notifications');
+        notificationService.sendDocumentApprovedNotification(
+          document.employee_id,
+          document.original_filename
+        ).catch(err => console.error('[approveDocument] Notification error:', err));
+      }
+      
+      sendSuccess(res, 200, 'Document approved successfully', document);
+      
+    } catch (error) {
+      console.error('[approveDocument] ERROR:', error);
+      console.error('[approveDocument] Error stack:', error.stack);
+      sendError(res, 500, 'Failed to approve document');
+    }
   }),
   
   rejectDocument: asyncHandler(async (req, res) => {
     const { reason } = req.body;
-    const document = await Document.reject(req.params.id, req.user.id, reason);
+    console.log('[rejectDocument] Rejecting document:', req.params.id);
+    console.log('[rejectDocument] Reason:', reason);
+    console.log('[rejectDocument] Reviewed by:', req.user.id);
     
-    await notificationService.sendDocumentRejectedNotification(
-      document.employee_id,
-      document.original_filename
-    );
-    
-    const User = require('../models/User');
-    const employee = await User.findById(document.employee_id);
-    await emailService.sendDocumentRejectedEmail(
-      employee.email,
-      employee.name,
-      document.original_filename,
-      reason
-    );
-    
-    sendSuccess(res, 200, 'Document rejected successfully', document);
+    try {
+      const document = await Document.reject(req.params.id, req.user.id, reason);
+      console.log('[rejectDocument] Document rejected successfully:', document.id);
+      
+      if (document.task_id) {
+        try {
+          await query(
+            `UPDATE employee_tasks 
+             SET status = 'pending', 
+                 updated_at = CURRENT_TIMESTAMP 
+             WHERE id = $1`,
+            [document.task_id]
+          );
+          console.log('[rejectDocument] Task updated to pending:', document.task_id);
+        } catch (taskError) {
+          console.error('[rejectDocument] Error updating task (non-critical):', taskError);
+        }
+      }
+      
+      let employee = null;
+      try {
+        employee = await User.findById(document.employee_id);
+        console.log('[rejectDocument] Employee found:', employee ? employee.email : 'No');
+      } catch (userError) {
+        console.error('[rejectDocument] Error fetching employee:', userError);
+      }
+      
+      if (employee) {
+        Promise.all([
+          notificationService.sendDocumentRejectedNotification(
+            document.employee_id,
+            document.original_filename
+          ).catch(err => console.error('[rejectDocument] Notification error:', err)),
+          
+          emailService.sendDocumentRejectedEmail(
+            employee.email,
+            employee.name,
+            document.original_filename,
+            reason
+          ).catch(err => console.error('[rejectDocument] Email error:', err))
+        ]);
+      } else {
+        console.log('[rejectDocument] Employee not found, skipping notifications');
+        notificationService.sendDocumentRejectedNotification(
+          document.employee_id,
+          document.original_filename
+        ).catch(err => console.error('[rejectDocument] Notification error:', err));
+      }
+      
+      sendSuccess(res, 200, 'Document rejected successfully', document);
+      
+    } catch (error) {
+      console.error('[rejectDocument] ERROR:', error);
+      console.error('[rejectDocument] Error stack:', error.stack);
+      
+      if (error.message.includes('rejection reason')) {
+        return sendError(res, 400, error.message);
+      }
+      
+      sendError(res, 500, 'Failed to reject document');
+    }
   }),
   
   getPendingDocuments: asyncHandler(async (req, res) => {

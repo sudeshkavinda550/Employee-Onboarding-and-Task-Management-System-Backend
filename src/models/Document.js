@@ -129,25 +129,25 @@ const Document = {
     }
   },
   
-  approve: async (id, reviewed_by) => {
-    try {
-      const result = await query(
-        `UPDATE documents
-         SET status = 'approved',
-             reviewed_by = $1,
-             reviewed_date = CURRENT_TIMESTAMP,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2
-         RETURNING *`,
-        [reviewed_by, id]
-      );
-      
-      return result.rows[0];
-    } catch (error) {
-      console.error('Error in Document.approve:', error.message);
-      throw error;
-    }
-  },
+ approve: async (id, reviewed_by) => {
+  try {
+    const result = await query(
+      `UPDATE documents
+       SET status = 'approved',
+           reviewed_by = $1,
+           reviewed_date = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *, task_id`,
+      [reviewed_by, id]
+    );
+    
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error in Document.approve:', error.message);
+    throw error;
+  }
+},
   
   reject: async (id, reviewed_by, rejection_reason) => {
     try {

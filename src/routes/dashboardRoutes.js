@@ -5,12 +5,11 @@ const { checkRole } = require('../middleware/roleCheck');
 
 const router = express.Router();
 
-// All routes require authentication
 router.use(authenticate);
 
-// Role-specific dashboard routes
 router.get('/employee', checkRole('employee'), dashboardController.getEmployeeDashboard);
 router.get('/hr', checkRole('hr', 'admin'), dashboardController.getHRDashboard);
 router.get('/admin', checkRole('admin'), dashboardController.getAdminDashboard);
+router.get('/statistics', dashboardController.getTaskStatistics);
 
 module.exports = router;
