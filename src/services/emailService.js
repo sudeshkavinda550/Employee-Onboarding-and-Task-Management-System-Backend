@@ -10,6 +10,11 @@ const emailService = {
         return false;
       }
 
+      if (!emailTransporter || typeof emailTransporter.sendMail !== 'function') {
+        logger.warn('[sendEmail] Email transporter not configured, skipping email');
+        return false;
+      }
+
       const fromName = process.env.EMAIL_FROM_NAME || 'OnboardPro';
       const fromEmail = process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@onboardpro.com';
 
@@ -25,7 +30,7 @@ const emailService = {
       return info;
     } catch (error) {
       logger.error('Email sending error:', error);
-      throw error;
+      return false;
     }
   },
   
@@ -49,7 +54,7 @@ const emailService = {
       return await emailService.sendEmail(to, subject, html);
     } catch (error) {
       logger.error('[sendWelcomeEmail] Error:', error);
-      throw error;
+      return false;
     }
   },
   
@@ -77,7 +82,7 @@ const emailService = {
       return await emailService.sendEmail(to, subject, html);
     } catch (error) {
       logger.error('[sendPasswordResetEmail] Error:', error);
-      throw error;
+      return false;
     }
   },
   
@@ -102,7 +107,7 @@ const emailService = {
       return await emailService.sendEmail(to, subject, html);
     } catch (error) {
       logger.error('[sendTaskAssignedEmail] Error:', error);
-      throw error;
+      return false;
     }
   },
   
@@ -128,7 +133,7 @@ const emailService = {
       return await emailService.sendEmail(to, subject, html);
     } catch (error) {
       logger.error('[sendTaskReminderEmail] Error:', error);
-      throw error;
+      return false;
     }
   },
   
@@ -152,7 +157,7 @@ const emailService = {
       return await emailService.sendEmail(to, subject, html);
     } catch (error) {
       logger.error('[sendDocumentApprovedEmail] Error:', error);
-      throw error;
+      return false;
     }
   },
   
@@ -178,7 +183,7 @@ const emailService = {
       return await emailService.sendEmail(to, subject, html);
     } catch (error) {
       logger.error('[sendDocumentRejectedEmail] Error:', error);
-      throw error;
+      return false;
     }
   },
 };

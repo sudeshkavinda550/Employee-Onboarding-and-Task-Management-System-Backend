@@ -10,6 +10,7 @@ const logger = require('./utils/logger');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const employeeRoutes = require('./routes/employeeRoutes'); 
 const taskRoutes = require('./routes/taskRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 const app = express();
 
@@ -67,7 +68,12 @@ app.use((req, res, next) => {
 
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/employees', employeeRoutes);
-app.use('/api/v1/tasks', taskRoutes); 
+app.use('/api/v1/tasks', taskRoutes);
+
+app.use('/api/v1/employee/notifications', notificationRoutes);
+app.use('/api/v1/hr/notifications', notificationRoutes);
+app.use('/api/v1/admin/notifications', notificationRoutes);
+
 app.use('/api/v1', routes);
 
 app.use(notFound);
