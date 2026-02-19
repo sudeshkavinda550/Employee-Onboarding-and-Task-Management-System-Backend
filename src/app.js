@@ -40,11 +40,22 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-  message: 'Too many requests from this IP, please try again later.'
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, 
+  max: process.env.NODE_ENV === 'production' 
+    ? (parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100)  
+    : 10000, 
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true, 
+  legacyHeaders: false, 
+  skip: (req) => req.url === '/health' || req.url === '/api/health'
 });
-app.use('/api/', limiter);
+
+if (process.env.NODE_ENV === 'production' || process.env.ENABLE_RATE_LIMIT === 'true') {
+  app.use('/api/', limiter);
+  console.log('Rate limiting enabled');
+} else {
+  console.log('Rate limiting disabled for development');
+}
 
 app.use('/uploads', (req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
