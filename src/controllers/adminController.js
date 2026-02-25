@@ -1,4 +1,4 @@
-const { query, pool } = require('../config/database');
+const pool = require('../config/database');
 const bcrypt = require('bcryptjs');
 
 const adminController = {
@@ -11,14 +11,11 @@ const adminController = {
           (SELECT COUNT(*) FROM users WHERE role = 'employee' AND onboarding_status = 'in_progress') as active_onboardings,
           (SELECT COUNT(*) FROM employee_tasks WHERE status = 'overdue') as overdue_tasks,
           (SELECT COUNT(*) FROM users WHERE role = 'employee' AND onboarding_status = 'completed') as completed_onboardings,
-          (SELECT COUNT(*) FROM templates) as total_templates,
-          100 as system_health
+          (SELECT COUNT(*) FROM templates) as total_templates
       `;
-
+      
       const avgQuery = `
-        SELECT COALESCE(
-          AVG(EXTRACT(DAY FROM (onboarding_completed_date::timestamp - start_date::timestamp))), 0
-        ) as avg_days
+        SELECT COALESCE(AVG(onboarding_completed_date - start_date), 0) as avg_days
         FROM users 
         WHERE role = 'employee' 
           AND onboarding_status = 'completed'
@@ -31,24 +28,25 @@ const adminController = {
         pool.query(avgQuery)
       ]);
 
-      const row = statsResult.rows[0];
-
       const stats = {
-        totalUsers: parseInt(row.total_employees || 0) + parseInt(row.hr_managers || 0),
-        activeEmployees: parseInt(row.total_employees || 0),
-        totalTemplates: parseInt(row.total_templates || 0),
+        totalUsers: parseInt(statsResult.rows[0].total_employees || 0) + parseInt(statsResult.rows[0].hr_managers || 0),
+        activeEmployees: parseInt(statsResult.rows[0].total_employees || 0),
+        totalTemplates: parseInt(statsResult.rows[0].total_templates || 0),
         systemHealth: 100,
-        hrManagers: parseInt(row.hr_managers || 0),
-        completedOnboardings: parseInt(row.completed_onboardings || 0),
-        activeOnboardings: parseInt(row.active_onboardings || 0),
-        overdueTasks: parseInt(row.overdue_tasks || 0),
-        avgCompletionDays: Math.round(parseFloat(avgResult.rows[0]?.avg_days) || 0)
+        hrManagers: parseInt(statsResult.rows[0].hr_managers || 0),
+        completedOnboardings: parseInt(statsResult.rows[0].completed_onboardings || 0),
+        activeOnboardings: parseInt(statsResult.rows[0].active_onboardings || 0),
+        overdueTasks: parseInt(statsResult.rows[0].overdue_tasks || 0),
+        avgCompletionDays: Math.round(parseFloat(avgResult.rows[0].avg_days) || 0)
       };
 
       res.json(stats);
     } catch (error) {
-      console.error('Get stats error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to fetch statistics' });
+      console.error('Get stats error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch statistics',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
@@ -59,10 +57,10 @@ const adminController = {
           d.name as department,
           COUNT(u.id) as total_employees,
           COUNT(CASE WHEN u.onboarding_status = 'completed' THEN 1 END) as completed,
-          ROUND(
+          COALESCE(ROUND(
             (COUNT(CASE WHEN u.onboarding_status = 'completed' THEN 1 END)::numeric / 
             NULLIF(COUNT(u.id), 0) * 100), 0
-          ) as completion_rate
+          ), 0) as completion_rate
         FROM departments d
         LEFT JOIN users u ON d.id = u.department_id AND u.role = 'employee'
         GROUP BY d.id, d.name
@@ -71,17 +69,20 @@ const adminController = {
       `;
 
       const result = await pool.query(query);
-
+      
       const stats = result.rows.map(row => ({
         department: row.department,
-        totalEmployees: parseInt(row.total_employees),
-        completionRate: parseInt(row.completion_rate) || 0
+        totalEmployees: parseInt(row.total_employees || 0),
+        completionRate: parseInt(row.completion_rate || 0)
       }));
 
       res.json(stats);
     } catch (error) {
-      console.error('Get dept stats error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to fetch department statistics' });
+      console.error('Get dept stats error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch department statistics',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
@@ -97,9 +98,12 @@ const adminController = {
           u.role as actor_role,
           CASE 
             WHEN al.created_at > NOW() - INTERVAL '1 minute' THEN 'Just now'
-            WHEN al.created_at > NOW() - INTERVAL '1 hour' THEN EXTRACT(MINUTE FROM NOW() - al.created_at)::text || 'm ago'
-            WHEN al.created_at > NOW() - INTERVAL '1 day' THEN EXTRACT(HOUR FROM NOW() - al.created_at)::text || 'h ago'
-            ELSE EXTRACT(DAY FROM NOW() - al.created_at)::text || 'd ago'
+            WHEN al.created_at > NOW() - INTERVAL '1 hour' THEN 
+              FLOOR(EXTRACT(EPOCH FROM (NOW() - al.created_at)) / 60)::text || 'm ago'
+            WHEN al.created_at > NOW() - INTERVAL '1 day' THEN 
+              FLOOR(EXTRACT(EPOCH FROM (NOW() - al.created_at)) / 3600)::text || 'h ago'
+            ELSE 
+              FLOOR(EXTRACT(EPOCH FROM (NOW() - al.created_at)) / 86400)::text || 'd ago'
           END as time_ago
         FROM activity_logs al
         LEFT JOIN users u ON al.user_id = u.id
@@ -108,19 +112,52 @@ const adminController = {
       `;
 
       const result = await pool.query(query);
+      
+      const activities = result.rows.map(row => {
+        let detailText = 'No details';
+        
+        if (row.details) {
+          try {
+            let parsed = row.details;
+            if (typeof row.details === 'string') {
+              parsed = JSON.parse(row.details);
+            }
+            
+            if (parsed.name && parsed.email) {
+              detailText = `Created account for ${parsed.name} (${parsed.email})`;
+            } else if (parsed.name) {
+              detailText = `Account: ${parsed.name}`;
+            } else if (parsed.message) {
+              detailText = parsed.message;
+            } else {
+              const entries = Object.entries(parsed)
+                .filter(([k, v]) => v && k !== 'password')
+                .map(([k, v]) => `${k}: ${v}`)
+                .join(', ');
+              detailText = entries || 'Action performed';
+            }
+          } catch (e) {
+            detailText = typeof row.details === 'string' ? row.details : 'Action performed';
+          }
+        }
 
-      const activities = result.rows.map(row => ({
-        action: row.action,
-        detail: row.details?.message || JSON.stringify(row.details),
-        actorName: row.actor_name || 'System',
-        actorRole: row.actor_role || 'system',
-        timeAgo: row.time_ago
-      }));
+        return {
+          id: row.id,
+          action: row.action,
+          detail: detailText,
+          actorName: row.actor_name || 'System',
+          actorRole: row.actor_role || 'system',
+          timeAgo: row.time_ago
+        };
+      });
 
       res.json(activities);
     } catch (error) {
-      console.error('Get recent activity error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to fetch recent activity' });
+      console.error('Get recent activity error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch recent activity',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
@@ -140,13 +177,16 @@ const adminController = {
         emailService: 'Active',
         lastBackup: '2h ago',
         uptime: '99.98%',
-        activeSessions: parseInt(result.rows[0].count) || 0
+        activeSessions: parseInt(result.rows[0]?.count || 0)
       };
 
       res.json(health);
     } catch (error) {
-      console.error('Get system health error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to fetch system health' });
+      console.error('Get system health error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch system health',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
@@ -157,6 +197,7 @@ const adminController = {
           u.id,
           u.name,
           u.email,
+          u.employee_id,
           u.department_id,
           u.is_active as status,
           u.created_at,
@@ -177,10 +218,11 @@ const adminController = {
         id: row.id,
         name: row.name,
         email: row.email,
+        employeeId: row.employee_id,
         department: row.department,
         departmentId: row.department_id,
         status: row.status ? 'active' : 'suspended',
-        employeeCount: parseInt(row.employee_count),
+        employeeCount: parseInt(row.employee_count || 0),
         lastLogin: row.last_login,
         createdAt: row.created_at,
         updatedAt: row.updated_at
@@ -188,8 +230,11 @@ const adminController = {
 
       res.json(accounts);
     } catch (error) {
-      console.error('Get HR accounts error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to fetch HR accounts' });
+      console.error('Get HR accounts error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch HR accounts',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
@@ -206,7 +251,7 @@ const adminController = {
 
       const checkQuery = 'SELECT id FROM users WHERE email = $1';
       const checkResult = await client.query(checkQuery, [email]);
-
+      
       if (checkResult.rows.length > 0) {
         await client.query('ROLLBACK');
         return res.status(400).json({ message: 'Email already exists' });
@@ -214,21 +259,27 @@ const adminController = {
 
       const deptQuery = 'SELECT id FROM departments WHERE name = $1';
       const deptResult = await client.query(deptQuery, [department]);
-
+      
       if (deptResult.rows.length === 0) {
         await client.query('ROLLBACK');
         return res.status(400).json({ message: 'Department not found' });
       }
 
+      const date = new Date();
+      const year = date.getFullYear().toString().slice(-2);
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+      const employee_id = `HR${year}${month}${random}`;
+
       const hashedPassword = await bcrypt.hash(password, 10);
 
       const insertQuery = `
-        INSERT INTO users (name, email, password, role, department_id, is_active, email_verified, start_date)
-        VALUES ($1, $2, $3, 'hr', $4, true, true, CURRENT_DATE)
-        RETURNING id, name, email, department_id, is_active, created_at
+        INSERT INTO users (name, email, password, employee_id, role, department_id, is_active, email_verified, start_date)
+        VALUES ($1, $2, $3, $4, 'hr', $5, true, true, CURRENT_DATE)
+        RETURNING id, name, email, employee_id, department_id, is_active, created_at
       `;
 
-      const result = await client.query(insertQuery, [name, email, hashedPassword, deptResult.rows[0].id]);
+      const result = await client.query(insertQuery, [name, email, hashedPassword, employee_id, deptResult.rows[0].id]);
 
       const logQuery = `
         INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details)
@@ -237,7 +288,7 @@ const adminController = {
       await client.query(logQuery, [
         req.user.id,
         result.rows[0].id,
-        JSON.stringify({ name, email, department })
+        JSON.stringify({ name, email, employee_id, department })
       ]);
 
       await client.query('COMMIT');
@@ -247,6 +298,7 @@ const adminController = {
         id: result.rows[0].id,
         name: result.rows[0].name,
         email: result.rows[0].email,
+        employeeId: result.rows[0].employee_id,
         department,
         departmentId: result.rows[0].department_id,
         status: result.rows[0].is_active ? 'active' : 'suspended',
@@ -254,8 +306,11 @@ const adminController = {
       });
     } catch (error) {
       await client.query('ROLLBACK');
-      console.error('Create HR account error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to create HR account' });
+      console.error('Create HR account error:', error);
+      res.status(500).json({ 
+        message: 'Failed to create HR account',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     } finally {
       client.release();
     }
@@ -307,8 +362,11 @@ const adminController = {
       });
     } catch (error) {
       await client.query('ROLLBACK');
-      console.error('Update HR status error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to update HR status' });
+      console.error('Update HR status error:', error);
+      res.status(500).json({ 
+        message: 'Failed to update HR status',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     } finally {
       client.release();
     }
@@ -347,8 +405,11 @@ const adminController = {
       res.json({ message: 'HR account deleted successfully' });
     } catch (error) {
       await client.query('ROLLBACK');
-      console.error('Delete HR account error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to delete HR account' });
+      console.error('Delete HR account error:', error);
+      res.status(500).json({ 
+        message: 'Failed to delete HR account',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     } finally {
       client.release();
     }
@@ -405,15 +466,18 @@ const adminController = {
         onboardingStatus: row.onboarding_status,
         startDate: row.start_date,
         completedDate: row.completed_date,
-        totalTasks: parseInt(row.total_tasks),
-        completedTasks: parseInt(row.completed_tasks),
-        progress: parseInt(row.progress)
+        totalTasks: parseInt(row.total_tasks || 0),
+        completedTasks: parseInt(row.completed_tasks || 0),
+        progress: parseInt(row.progress || 0)
       }));
 
       res.json(employees);
     } catch (error) {
-      console.error('Get all employees error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to fetch employees' });
+      console.error('Get all employees error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch employees',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
@@ -429,12 +493,11 @@ const adminController = {
           (SELECT COUNT(*) FROM tasks WHERE template_id = t.id) as task_count,
           (SELECT COUNT(*) FROM users WHERE department_id = t.department_id AND role = 'employee') as usage_count,
           (
-            SELECT AVG(EXTRACT(DAY FROM (onboarding_completed_date::timestamp - start_date::timestamp)))
+            SELECT COALESCE(AVG(onboarding_completed_date - start_date), 0)
             FROM users 
             WHERE department_id = t.department_id 
               AND onboarding_status = 'completed'
               AND onboarding_completed_date IS NOT NULL
-              AND start_date IS NOT NULL
           ) as avg_completion_days
         FROM templates t
         LEFT JOIN users u ON t.created_by = u.id
@@ -443,24 +506,23 @@ const adminController = {
 
       const result = await pool.query(query);
 
-      const templateIds = result.rows.map(t => t.id);
+      const tasksQuery = `
+        SELECT 
+          id,
+          template_id,
+          title,
+          description,
+          task_type as type,
+          order_index
+        FROM tasks
+        WHERE template_id = ANY($1)
+        ORDER BY template_id, order_index
+      `;
 
-      let tasksResult = { rows: [] };
-      if (templateIds.length > 0) {
-        const tasksQuery = `
-          SELECT 
-            id,
-            template_id,
-            title,
-            description,
-            task_type,
-            order_index
-          FROM tasks
-          WHERE template_id = ANY($1::uuid[])
-          ORDER BY template_id, order_index
-        `;
-        tasksResult = await pool.query(tasksQuery, [templateIds]);
-      }
+      const templateIds = result.rows.map(t => t.id);
+      const tasksResult = templateIds.length > 0 
+        ? await pool.query(tasksQuery, [templateIds])
+        : { rows: [] };
 
       const tasksByTemplate = {};
       tasksResult.rows.forEach(task => {
@@ -471,7 +533,7 @@ const adminController = {
           id: task.id,
           title: task.title,
           description: task.description,
-          type: task.task_type
+          type: task.type
         });
       });
 
@@ -483,14 +545,17 @@ const adminController = {
         createdByName: row.created_by_name,
         createdAt: row.created_at,
         tasks: tasksByTemplate[row.id] || [],
-        usageCount: parseInt(row.usage_count) || 0,
-        avgCompletionDays: row.avg_completion_days ? Math.round(row.avg_completion_days) : null
+        usageCount: parseInt(row.usage_count || 0),
+        avgCompletionDays: row.avg_completion_days ? Math.round(parseFloat(row.avg_completion_days)) : null
       }));
 
       res.json(templates);
     } catch (error) {
-      console.error('Get all templates error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to fetch templates' });
+      console.error('Get all templates error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch templates',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
@@ -534,8 +599,11 @@ const adminController = {
 
       res.json(documents);
     } catch (error) {
-      console.error('Get all documents error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to fetch documents' });
+      console.error('Get all documents error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch documents',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
@@ -582,7 +650,7 @@ const adminController = {
         paramIndex++;
       }
 
-      const whereClause = whereConditions.length > 0
+      const whereClause = whereConditions.length > 0 
         ? 'WHERE ' + whereConditions.join(' AND ')
         : '';
 
@@ -615,26 +683,41 @@ const adminController = {
         pool.query(dataQuery, params)
       ]);
 
-      const logs = dataResult.rows.map(row => ({
-        _id: row.id,
-        id: row.id,
-        action: row.action,
-        detail: row.details?.message || JSON.stringify(row.details),
-        actorName: row.actor_name || 'System',
-        actorRole: row.actor_role || 'system',
-        role: row.actor_role || 'system',
-        createdAt: row.created_at
-      }));
+      const logs = dataResult.rows.map(row => {
+        let detailText = 'No details';
+        if (row.details) {
+          try {
+            let parsed = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
+            detailText = parsed.message || JSON.stringify(parsed);
+          } catch (e) {
+            detailText = typeof row.details === 'string' ? row.details : JSON.stringify(row.details);
+          }
+        }
+
+        return {
+          _id: row.id,
+          id: row.id,
+          action: row.action,
+          detail: detailText,
+          actorName: row.actor_name || 'System',
+          actorRole: row.actor_role || 'system',
+          role: row.actor_role || 'system',
+          createdAt: row.created_at
+        };
+      });
 
       res.json({
         logs,
-        total: parseInt(countResult.rows[0].total),
+        total: parseInt(countResult.rows[0].total || 0),
         page: parseInt(page),
-        totalPages: Math.ceil(parseInt(countResult.rows[0].total) / limit)
+        totalPages: Math.ceil(parseInt(countResult.rows[0].total || 0) / limit)
       });
     } catch (error) {
-      console.error('Get audit log error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to fetch audit log' });
+      console.error('Get audit log error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch audit log',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
@@ -656,10 +739,20 @@ const adminController = {
 
       const result = await pool.query(query);
 
-      const csvRows = ['ID,Role,Actor,Action,Detail,Date,Time'];
+      const csvRows = [
+        'ID,Role,Actor,Action,Detail,Date,Time'
+      ];
 
       result.rows.forEach(row => {
-        const detail = row.details?.message || JSON.stringify(row.details) || '';
+        let detail = 'No details';
+        if (row.details) {
+          try {
+            let parsed = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
+            detail = parsed.message || JSON.stringify(parsed);
+          } catch (e) {
+            detail = typeof row.details === 'string' ? row.details : '';
+          }
+        }
         const date = new Date(row.created_at);
         csvRows.push([
           row.id,
@@ -678,15 +771,21 @@ const adminController = {
       res.setHeader('Content-Disposition', 'attachment; filename=audit-log.csv');
       res.send(csv);
     } catch (error) {
-      console.error('Export audit log error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to export audit log' });
+      console.error('Export audit log error:', error);
+      res.status(500).json({ 
+        message: 'Failed to export audit log',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
   getSettings: async (req, res) => {
     try {
       const settingsQuery = `
-        SELECT key, value, category
+        SELECT 
+          key,
+          value,
+          category
         FROM system_settings
         ORDER BY category, key
       `;
@@ -702,31 +801,60 @@ const adminController = {
 
       result.rows.forEach(row => {
         if (row.category in settings) {
-          settings[row.category][row.key] = row.value;
+          try {
+            settings[row.category][row.key] = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+          } catch (e) {
+            settings[row.category][row.key] = row.value;
+          }
         }
       });
 
       if (Object.keys(settings.company).length === 0) {
-        settings.company = { companyName: '', industry: '', headquarters: '', timezone: 'UTC', companySize: '11–50' };
-      }
-      if (Object.keys(settings.defaults).length === 0) {
-        settings.defaults = { onboardingDays: 10, gracePeriod: 2, approvalTimeout: 3, maxFileSizeMB: 25 };
-      }
-      if (Object.keys(settings.toggles).length === 0) {
-        settings.toggles = {
-          sendReminders: true, overdueAlerts: true, completionCongrats: true,
-          autoCredentials: true, inactivityReminder: false, weeklyDigest: true,
-          require2FA: false, sessionTimeout: true, logDocumentAccess: true
+        settings.company = {
+          companyName: '',
+          industry: '',
+          headquarters: '',
+          timezone: 'UTC',
+          companySize: '11–50'
         };
       }
+
+      if (Object.keys(settings.defaults).length === 0) {
+        settings.defaults = {
+          onboardingDays: 10,
+          gracePeriod: 2,
+          approvalTimeout: 3,
+          maxFileSizeMB: 25
+        };
+      }
+
+      if (Object.keys(settings.toggles).length === 0) {
+        settings.toggles = {
+          sendReminders: true,
+          overdueAlerts: true,
+          completionCongrats: true,
+          autoCredentials: true,
+          inactivityReminder: false,
+          weeklyDigest: true,
+          require2FA: false,
+          sessionTimeout: true,
+          logDocumentAccess: true
+        };
+      }
+
       if (Object.keys(settings.integrations).length === 0) {
-        settings.integrations = { sendgrid: false, slack: false, s3: false, googleSSO: false };
+        settings.integrations = {
+          sendgrid: false,
+          slack: false,
+          s3: false,
+          googleSSO: false
+        };
       }
 
       res.json(settings);
     } catch (error) {
       if (error.code === '42P01') {
-        return res.json({
+        const defaultSettings = {
           company: { companyName: '', industry: '', headquarters: '', timezone: 'UTC', companySize: '11–50' },
           defaults: { onboardingDays: 10, gracePeriod: 2, approvalTimeout: 3, maxFileSizeMB: 25 },
           toggles: {
@@ -735,10 +863,14 @@ const adminController = {
             require2FA: false, sessionTimeout: true, logDocumentAccess: true
           },
           integrations: { sendgrid: false, slack: false, s3: false, googleSSO: false }
-        });
+        };
+        return res.json(defaultSettings);
       }
-      console.error('Get settings error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to fetch settings' });
+      console.error('Get settings error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch settings',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   },
 
@@ -769,17 +901,19 @@ const adminController = {
       `;
 
       const updates = [];
-
+      
       if (company) {
         Object.entries(company).forEach(([key, value]) => {
           updates.push(client.query(upsertQuery, [key, JSON.stringify(value), 'company']));
         });
       }
+
       if (defaults) {
         Object.entries(defaults).forEach(([key, value]) => {
           updates.push(client.query(upsertQuery, [key, JSON.stringify(value), 'defaults']));
         });
       }
+
       if (toggles) {
         Object.entries(toggles).forEach(([key, value]) => {
           updates.push(client.query(upsertQuery, [key, JSON.stringify(value), 'toggles']));
@@ -792,15 +926,21 @@ const adminController = {
         INSERT INTO activity_logs (user_id, action, entity_type, details)
         VALUES ($1, 'update_settings', 'system', $2)
       `;
-      await client.query(logQuery, [req.user.id, JSON.stringify({ company, defaults, toggles })]);
+      await client.query(logQuery, [
+        req.user.id,
+        JSON.stringify({ company, defaults, toggles })
+      ]);
 
       await client.query('COMMIT');
 
       res.json({ company, defaults, toggles, integrations: {} });
     } catch (error) {
       await client.query('ROLLBACK');
-      console.error('Save settings error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to save settings' });
+      console.error('Save settings error:', error);
+      res.status(500).json({ 
+        message: 'Failed to save settings',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     } finally {
       client.release();
     }
@@ -819,15 +959,21 @@ const adminController = {
         INSERT INTO activity_logs (user_id, action, entity_type, details)
         VALUES ($1, 'danger_reset_templates', 'system', $2)
       `;
-      await client.query(logQuery, [req.user.id, JSON.stringify({ action: 'All templates deleted' })]);
+      await client.query(logQuery, [
+        req.user.id,
+        JSON.stringify({ action: 'All templates deleted' })
+      ]);
 
       await client.query('COMMIT');
 
       res.json({ message: 'All templates deleted successfully' });
     } catch (error) {
       await client.query('ROLLBACK');
-      console.error('Reset templates error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to reset templates' });
+      console.error('Reset templates error:', error);
+      res.status(500).json({ 
+        message: 'Failed to reset templates',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     } finally {
       client.release();
     }
@@ -855,15 +1001,21 @@ const adminController = {
         INSERT INTO activity_logs (user_id, action, entity_type, details)
         VALUES ($1, 'danger_purge_inactive', 'system', $2)
       `;
-      await client.query(logQuery, [req.user.id, JSON.stringify({ deletedCount: result.rows.length })]);
+      await client.query(logQuery, [
+        req.user.id,
+        JSON.stringify({ deletedCount: result.rows.length })
+      ]);
 
       await client.query('COMMIT');
 
       res.json({ message: `Deleted ${result.rows.length} inactive accounts` });
     } catch (error) {
       await client.query('ROLLBACK');
-      console.error('Purge inactive error:', error.message, '| Code:', error.code);
-      res.status(500).json({ message: 'Failed to purge inactive accounts' });
+      console.error('Purge inactive error:', error);
+      res.status(500).json({ 
+        message: 'Failed to purge inactive accounts',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     } finally {
       client.release();
     }

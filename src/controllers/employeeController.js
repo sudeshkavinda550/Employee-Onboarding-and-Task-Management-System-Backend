@@ -2,6 +2,8 @@ const User = require('../models/User');
 const EmployeeTask = require('../models/EmployeeTask');
 const Document = require('../models/Document');
 const taskService = require('../services/taskService');
+const notificationService = require('../services/notificationService');
+const notificationHelpers = require('../utils/notificationHelpers');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
 const { asyncHandler } = require('../middleware/errorHandler');
 
@@ -155,20 +157,45 @@ const employeeController = {
           department: department_name
         });
       } catch (emailError) {
-        // Email failed, continue with employee creation
+        console.error('Email send error:', emailError);
       }
 
       const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
       const result = await query(
         `INSERT INTO users 
-         (name, email, password, employee_id, position, department_id, start_date, phone, address, role, onboarding_status, is_active, email_verified)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'employee', 'not_started', true, false)
+         (name, email, password, employee_id, position, department_id, start_date, phone, address, role, onboarding_status, is_active, email_verified, manager_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'employee', 'not_started', true, false, $10)
          RETURNING id, name, email, employee_id, position, department_id, start_date, phone, address, onboarding_status, is_active, created_at`,
-        [name, email, hashedPassword, employee_id, position, department_id || null, start_date, phone || null, address || null]
+        [name, email, hashedPassword, employee_id, position, department_id || null, start_date, phone || null, address || null, req.user.id]
       );
 
       const newEmployee = result.rows[0];
+
+      try {
+        await notificationHelpers.notifyNewEmployee(
+          req.user.id,
+          name,
+          department_name || 'N/A',
+          start_date
+        );
+
+        await notificationService.create(
+          newEmployee.id,
+          'Welcome to the Team!',
+          `Your account has been created. Login credentials have been sent to ${email}.`,
+          'system',
+          '/employee/dashboard'
+        );
+
+        await notificationService.sendAccountCredentialsNotification(
+          newEmployee.id,
+          email,
+          plainPassword
+        );
+      } catch (notifError) {
+        console.error('Notification error:', notifError);
+      }
 
       sendSuccess(res, 201, 'Employee created successfully. Welcome email sent with login credentials.', {
         ...newEmployee,
@@ -246,6 +273,37 @@ const employeeController = {
     );
     
     await User.updateOnboardingStatus(req.params.id, 'in_progress');
+
+    try {
+      const { query } = require('../config/database');
+      const templateResult = await query(
+        'SELECT name, (SELECT COUNT(*) FROM tasks WHERE template_id = $1) as task_count FROM templates WHERE id = $1',
+        [templateId]
+      );
+
+      if (templateResult.rows.length > 0) {
+        await notificationService.sendOnboardingStartedNotification(
+          req.params.id,
+          templateResult.rows[0].name,
+          parseInt(templateResult.rows[0].task_count)
+        );
+
+        const adminIds = await notificationHelpers.getAllAdminIds();
+        const employeeResult = await query('SELECT name FROM users WHERE id = $1', [req.params.id]);
+
+        if (adminIds.length > 0 && employeeResult.rows.length > 0) {
+          await notificationService.createBulk(
+            adminIds,
+            'Template Assigned',
+            `HR assigned "${templateResult.rows[0].name}" to ${employeeResult.rows[0].name}`,
+            'system',
+            '/admin/employees'
+          );
+        }
+      }
+    } catch (notifError) {
+      console.error('Notification error:', notifError);
+    }
     
     sendSuccess(res, 200, 'Template assigned successfully', assignedTasks);
   }),
@@ -260,6 +318,16 @@ const employeeController = {
     
     if (!employee) {
       return sendError(res, 404, 'Employee not found');
+    }
+
+    try {
+      await notificationService.sendTaskReminderNotification(
+        req.params.id,
+        'Complete your pending onboarding tasks',
+        null
+      );
+    } catch (notifError) {
+      console.error('Notification error:', notifError);
     }
     
     sendSuccess(res, 200, 'Reminder sent successfully');
@@ -288,6 +356,13 @@ const employeeController = {
     }
 
     await User.updatePassword(userId, newPassword);
+
+    try {
+      const user = await User.findById(userId);
+      await notificationService.sendPasswordResetNotification(userId, user.name);
+    } catch (notifError) {
+      console.error('Notification error:', notifError);
+    }
 
     sendSuccess(res, 200, 'Password changed successfully');
   }),

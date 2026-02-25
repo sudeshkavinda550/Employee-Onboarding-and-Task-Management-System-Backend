@@ -10,6 +10,16 @@ connectDB();
 const server = app.listen(PORT, () => {
   logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
   console.log(`Server running on http://localhost:${PORT}`);
+  
+  if (process.env.NODE_ENV === 'production' || process.env.ENABLE_SCHEDULED_JOBS === 'true') {
+    try {
+      const { startScheduledJobs } = require('./jobs/scheduler');
+      startScheduledJobs();
+      logger.info('Scheduled notification jobs started');
+    } catch (error) {
+      logger.warn('Scheduled jobs not available:', error.message);
+    }
+  }
 });
 
 process.on('unhandledRejection', (err) => {
