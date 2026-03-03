@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const bcrypt = require('bcryptjs');
+const emailService = require('../config/email');
 
 const adminController = {
   getStats: async (req, res) => {
@@ -239,92 +240,100 @@ const adminController = {
   },
 
   createHRAccount: async (req, res) => {
-    const client = await pool.connect();
-    try {
-      const { name, email, password, department } = req.body;
+  try {
+    const { name, email, password, department } = req.body;
 
-      if (!name || !email || !password || !department) {
-        return res.status(400).json({ message: 'All fields are required' });
-      }
-
-      await client.query('BEGIN');
-
-      const checkQuery = 'SELECT id FROM users WHERE email = $1';
-      const checkResult = await client.query(checkQuery, [email]);
-      
-      if (checkResult.rows.length > 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ message: 'Email already exists' });
-      }
-
-      const deptQuery = 'SELECT id FROM departments WHERE name = $1';
-      const deptResult = await client.query(deptQuery, [department]);
-      
-      if (deptResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ message: 'Department not found' });
-      }
-
-      const date = new Date();
-      const year = date.getFullYear().toString().slice(-2);
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-      const employee_id = `HR${year}${month}${random}`;
-
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      const insertQuery = `
-        INSERT INTO users (name, email, password, employee_id, role, department_id, is_active, email_verified, start_date)
-        VALUES ($1, $2, $3, $4, 'hr', $5, true, true, CURRENT_DATE)
-        RETURNING id, name, email, employee_id, department_id, is_active, created_at
-      `;
-
-      const result = await client.query(insertQuery, [name, email, hashedPassword, employee_id, deptResult.rows[0].id]);
-
-      const logQuery = `
-        INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details)
-        VALUES ($1, 'create_hr_account', 'user', $2, $3)
-      `;
-      await client.query(logQuery, [
-        req.user.id,
-        result.rows[0].id,
-        JSON.stringify({ name, email, employee_id, department })
-      ]);
-
-      await client.query('COMMIT');
-
-      res.status(201).json({
-        _id: result.rows[0].id,
-        id: result.rows[0].id,
-        name: result.rows[0].name,
-        email: result.rows[0].email,
-        employeeId: result.rows[0].employee_id,
-        department,
-        departmentId: result.rows[0].department_id,
-        status: result.rows[0].is_active ? 'active' : 'suspended',
-        createdAt: result.rows[0].created_at
-      });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Create HR account error:', error);
-      res.status(500).json({ 
-        message: 'Failed to create HR account',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    } finally {
-      client.release();
+    if (!name || !email || !password || !department) {
+      return res.status(400).json({ message: 'All fields are required' });
     }
-  },
 
+    await pool.query('BEGIN');
+
+    const checkQuery = 'SELECT id FROM users WHERE email = $1';
+    const checkResult = await pool.query(checkQuery, [email]);
+    
+    if (checkResult.rows.length > 0) {
+      await pool.query('ROLLBACK');
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+
+    const deptQuery = 'SELECT id FROM departments WHERE name = $1';
+    const deptResult = await pool.query(deptQuery, [department]);
+    
+    if (deptResult.rows.length === 0) {
+      await pool.query('ROLLBACK');
+      return res.status(400).json({ message: 'Department not found' });
+    }
+
+    const date = new Date();
+    const year = date.getFullYear().toString().slice(-2);
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    const employee_id = `HR${year}${month}${random}`;
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const insertQuery = `
+      INSERT INTO users (name, email, password, employee_id, role, department_id, is_active, email_verified, start_date)
+      VALUES ($1, $2, $3, $4, 'hr', $5, true, true, CURRENT_DATE)
+      RETURNING id, name, email, employee_id, department_id, is_active, created_at
+    `;
+
+    const result = await pool.query(insertQuery, [name, email, hashedPassword, employee_id, deptResult.rows[0].id]);
+
+    const logQuery = `
+      INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details)
+      VALUES ($1, 'create_hr_account', 'user', $2, $3)
+    `;
+    await pool.query(logQuery, [
+      req.user.id,
+      result.rows[0].id,
+      JSON.stringify({ name, email, employee_id, department })
+    ]);
+
+    await pool.query('COMMIT');
+
+    try {
+      await emailService.sendHRAccountCredentialsEmail({
+        name,
+        email,
+        employeeId: employee_id,
+        password,
+        department
+      });
+      console.log(`HR credentials email sent successfully to ${email}`);
+    } catch (emailError) {
+      console.error('Failed to send HR credentials email:', emailError.message);
+    }
+
+    res.status(201).json({
+      _id: result.rows[0].id,
+      id: result.rows[0].id,
+      name: result.rows[0].name,
+      email: result.rows[0].email,
+      employeeId: result.rows[0].employee_id,
+      department,
+      departmentId: result.rows[0].department_id,
+      status: result.rows[0].is_active ? 'active' : 'suspended',
+      createdAt: result.rows[0].created_at
+    });
+  } catch (error) {
+    await pool.query('ROLLBACK');
+    console.error('Create HR account error:', error);
+    res.status(500).json({ 
+      message: 'Failed to create HR account',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+},
   updateHRStatus: async (req, res) => {
-    const client = await pool.connect();
     try {
       const { id } = req.params;
       const { action } = req.body;
 
       const newStatus = action === 'suspend' ? false : true;
 
-      await client.query('BEGIN');
+      await pool.query('BEGIN');
 
       const updateQuery = `
         UPDATE users 
@@ -333,10 +342,10 @@ const adminController = {
         RETURNING id, name, email, is_active
       `;
 
-      const result = await client.query(updateQuery, [newStatus, id]);
+      const result = await pool.query(updateQuery, [newStatus, id]);
 
       if (result.rows.length === 0) {
-        await client.query('ROLLBACK');
+        await pool.query('ROLLBACK');
         return res.status(404).json({ message: 'HR account not found' });
       }
 
@@ -344,14 +353,14 @@ const adminController = {
         INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details)
         VALUES ($1, $2, 'user', $3, $4)
       `;
-      await client.query(logQuery, [
+      await pool.query(logQuery, [
         req.user.id,
         action === 'suspend' ? 'suspend_hr_account' : 'restore_hr_account',
         id,
         JSON.stringify({ name: result.rows[0].name })
       ]);
 
-      await client.query('COMMIT');
+      await pool.query('COMMIT');
 
       res.json({
         _id: result.rows[0].id,
@@ -361,57 +370,52 @@ const adminController = {
         status: result.rows[0].is_active ? 'active' : 'suspended'
       });
     } catch (error) {
-      await client.query('ROLLBACK');
+      await pool.query('ROLLBACK');
       console.error('Update HR status error:', error);
       res.status(500).json({ 
         message: 'Failed to update HR status',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
-    } finally {
-      client.release();
     }
   },
 
   deleteHRAccount: async (req, res) => {
-    const client = await pool.connect();
     try {
       const { id } = req.params;
 
-      await client.query('BEGIN');
+      await pool.query('BEGIN');
 
       const checkQuery = 'SELECT name FROM users WHERE id = $1 AND role = $2';
-      const checkResult = await client.query(checkQuery, [id, 'hr']);
+      const checkResult = await pool.query(checkQuery, [id, 'hr']);
 
       if (checkResult.rows.length === 0) {
-        await client.query('ROLLBACK');
+        await pool.query('ROLLBACK');
         return res.status(404).json({ message: 'HR account not found' });
       }
 
       const deleteQuery = 'DELETE FROM users WHERE id = $1 AND role = $2';
-      await client.query(deleteQuery, [id, 'hr']);
+      await pool.query(deleteQuery, [id, 'hr']);
 
       const logQuery = `
         INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details)
         VALUES ($1, 'delete_hr_account', 'user', $2, $3)
       `;
-      await client.query(logQuery, [
+      await pool.query(logQuery, [
         req.user.id,
         id,
         JSON.stringify({ name: checkResult.rows[0].name })
       ]);
 
-      await client.query('COMMIT');
+      await pool.query('COMMIT');
 
       res.json({ message: 'HR account deleted successfully' });
     } catch (error) {
-      await client.query('ROLLBACK');
+      await pool.query('ROLLBACK');
       console.error('Delete HR account error:', error);
       res.status(500).json({ 
         message: 'Failed to delete HR account',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
-    } finally {
-      client.release();
     }
   },
 
@@ -875,11 +879,10 @@ const adminController = {
   },
 
   saveSettings: async (req, res) => {
-    const client = await pool.connect();
     try {
       const { company, defaults, toggles } = req.body;
 
-      await client.query('BEGIN');
+      await pool.query('BEGIN');
 
       const createTableQuery = `
         CREATE TABLE IF NOT EXISTS system_settings (
@@ -891,7 +894,7 @@ const adminController = {
           UNIQUE(category, key)
         )
       `;
-      await client.query(createTableQuery);
+      await pool.query(createTableQuery);
 
       const upsertQuery = `
         INSERT INTO system_settings (key, value, category)
@@ -904,19 +907,19 @@ const adminController = {
       
       if (company) {
         Object.entries(company).forEach(([key, value]) => {
-          updates.push(client.query(upsertQuery, [key, JSON.stringify(value), 'company']));
+          updates.push(pool.query(upsertQuery, [key, JSON.stringify(value), 'company']));
         });
       }
 
       if (defaults) {
         Object.entries(defaults).forEach(([key, value]) => {
-          updates.push(client.query(upsertQuery, [key, JSON.stringify(value), 'defaults']));
+          updates.push(pool.query(upsertQuery, [key, JSON.stringify(value), 'defaults']));
         });
       }
 
       if (toggles) {
         Object.entries(toggles).forEach(([key, value]) => {
-          updates.push(client.query(upsertQuery, [key, JSON.stringify(value), 'toggles']));
+          updates.push(pool.query(upsertQuery, [key, JSON.stringify(value), 'toggles']));
         });
       }
 
@@ -926,63 +929,57 @@ const adminController = {
         INSERT INTO activity_logs (user_id, action, entity_type, details)
         VALUES ($1, 'update_settings', 'system', $2)
       `;
-      await client.query(logQuery, [
+      await pool.query(logQuery, [
         req.user.id,
         JSON.stringify({ company, defaults, toggles })
       ]);
 
-      await client.query('COMMIT');
+      await pool.query('COMMIT');
 
       res.json({ company, defaults, toggles, integrations: {} });
     } catch (error) {
-      await client.query('ROLLBACK');
+      await pool.query('ROLLBACK');
       console.error('Save settings error:', error);
       res.status(500).json({ 
         message: 'Failed to save settings',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
-    } finally {
-      client.release();
     }
   },
 
   dangerResetTemplates: async (req, res) => {
-    const client = await pool.connect();
     try {
-      await client.query('BEGIN');
+      await pool.query('BEGIN');
 
-      await client.query('DELETE FROM employee_tasks');
-      await client.query('DELETE FROM tasks');
-      await client.query('DELETE FROM templates');
+      await pool.query('DELETE FROM employee_tasks');
+      await pool.query('DELETE FROM tasks');
+      await pool.query('DELETE FROM templates');
 
       const logQuery = `
         INSERT INTO activity_logs (user_id, action, entity_type, details)
         VALUES ($1, 'danger_reset_templates', 'system', $2)
       `;
-      await client.query(logQuery, [
+      await pool.query(logQuery, [
         req.user.id,
         JSON.stringify({ action: 'All templates deleted' })
       ]);
 
-      await client.query('COMMIT');
+      await pool.query('COMMIT');
 
       res.json({ message: 'All templates deleted successfully' });
     } catch (error) {
-      await client.query('ROLLBACK');
+      await pool.query('ROLLBACK');
       console.error('Reset templates error:', error);
       res.status(500).json({ 
         message: 'Failed to reset templates',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
-    } finally {
-      client.release();
     }
   },
 
   dangerPurgeInactive: async (req, res) => {
-    const client = await pool.connect();
     try {
-      await client.query('BEGIN');
+      await pool.query('BEGIN');
 
       const deleteQuery = `
         DELETE FROM users
@@ -995,29 +992,27 @@ const adminController = {
         RETURNING id
       `;
 
-      const result = await client.query(deleteQuery);
+      const result = await pool.query(deleteQuery);
 
       const logQuery = `
         INSERT INTO activity_logs (user_id, action, entity_type, details)
         VALUES ($1, 'danger_purge_inactive', 'system', $2)
       `;
-      await client.query(logQuery, [
+      await pool.query(logQuery, [
         req.user.id,
         JSON.stringify({ deletedCount: result.rows.length })
       ]);
 
-      await client.query('COMMIT');
+      await pool.query('COMMIT');
 
       res.json({ message: `Deleted ${result.rows.length} inactive accounts` });
     } catch (error) {
-      await client.query('ROLLBACK');
+      await pool.query('ROLLBACK');
       console.error('Purge inactive error:', error);
       res.status(500).json({ 
         message: 'Failed to purge inactive accounts',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
-    } finally {
-      client.release();
     }
   }
 };

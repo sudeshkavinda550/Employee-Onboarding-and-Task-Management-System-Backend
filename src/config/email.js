@@ -75,6 +75,352 @@ const sendWelcomeEmail = async (email, name) => {
   }
 };
 
+const sendHRAccountCredentialsEmail = async ({ name, email, employeeId, password, department }) => {
+  try {
+    console.log(`Sending HR account credentials email to: ${email}`);
+    
+    const companyName = process.env.COMPANY_NAME || 'OnboardPro';
+
+    const mailOptions = {
+      from: `"${process.env.EMAIL_FROM_NAME || companyName}" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
+      to: email,
+      subject: `HR Manager Access - Your ${companyName} Account Credentials`,
+      html: `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>HR Account Created - ${companyName}</title>
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                  
+                  <tr>
+                    <td style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 40px 30px; text-align: center;">
+                      <div style="font-size: 48px; margin-bottom: 10px;">🛡️</div>
+                      <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: bold; letter-spacing: -0.5px;">
+                        HR Manager Account Created
+                      </h1>
+                      <p style="margin: 10px 0 0 0; color: #d1fae5; font-size: 16px;">
+                        Administrative access has been granted
+                      </p>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding: 40px 30px 20px 30px;">
+                      <p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #374151;">
+                        Dear <strong style="color: #111827;">${name}</strong>,
+                      </p>
+                      <p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #374151;">
+                        You have been designated as an <strong style="color: #10b981;">HR Manager</strong> at ${companyName}. 
+                        Your account has been created with administrative privileges to manage employee onboarding and operations.
+                      </p>
+                      ${department ? `<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #374151;">
+                        You will be managing the <strong style="color: #10b981;">${department}</strong> department.
+                      </p>` : ''}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding: 0 30px 30px 30px;">
+                      <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border-radius: 12px; border: 2px solid #10b981; overflow: hidden;">
+                        <tr>
+                          <td style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 20px; text-align: center;">
+                            <h2 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: bold;">
+                              🔐 Your HR Portal Login Credentials
+                            </h2>
+                          </td>
+                        </tr>
+                        
+                        <tr>
+                          <td style="padding: 30px;">
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 20px;">
+                              <tr>
+                                <td style="padding: 12px 0;">
+                                  <div style="font-size: 13px; font-weight: 600; color: #065f46; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
+                                    HR Manager ID
+                                  </div>
+                                  <div style="font-size: 18px; font-weight: bold; color: #111827; font-family: 'Courier New', monospace; background-color: #ffffff; padding: 12px 16px; border-radius: 8px; border: 1px solid #10b981;">
+                                    ${employeeId}
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 20px;">
+                              <tr>
+                                <td style="padding: 12px 0;">
+                                  <div style="font-size: 13px; font-weight: 600; color: #065f46; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
+                                    Login Email
+                                  </div>
+                                  <div style="font-size: 16px; font-weight: 600; color: #111827; background-color: #ffffff; padding: 12px 16px; border-radius: 8px; border: 1px solid #10b981;">
+                                    ${email}
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                              <tr>
+                                <td style="padding: 12px 0;">
+                                  <div style="font-size: 13px; font-weight: 600; color: #065f46; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
+                                    Temporary Password
+                                  </div>
+                                  <div style="font-size: 18px; font-weight: bold; color: #dc2626; font-family: 'Courier New', monospace; background-color: #ffffff; padding: 12px 16px; border-radius: 8px; border: 2px solid #fca5a5;">
+                                    ${password}
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding: 0 30px 30px 30px;">
+                      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 20px;">
+                        <tr>
+                          <td>
+                            <div style="font-size: 16px; font-weight: bold; color: #92400e; margin-bottom: 8px;">
+                              ⚠️ Critical Security Notice
+                            </div>
+                            <p style="margin: 0 0 10px 0; font-size: 14px; line-height: 1.6; color: #78350f;">
+                              As an HR Manager, you have access to sensitive employee data. Please:
+                            </p>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #78350f;">
+                              <li><strong>Change your password immediately</strong> after first login</li>
+                              <li>Never share your credentials with anyone</li>
+                              <li>Use a strong, unique password</li>
+                              <li>Log out when not using the system</li>
+                            </ul>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding: 0 30px 30px 30px;">
+                      <h3 style="margin: 0 0 15px 0; font-size: 18px; font-weight: bold; color: #111827;">
+                        📋 Your HR Responsibilities
+                      </h3>
+                      <table width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td style="padding: 10px 0;">
+                            <div style="display: flex; align-items: start;">
+                              <span style="color: #10b981; font-size: 20px; margin-right: 12px;">✓</span>
+                              <span style="font-size: 15px; color: #374151; line-height: 1.6;">
+                                Manage employee onboarding and offboarding
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 10px 0;">
+                            <div style="display: flex; align-items: start;">
+                              <span style="color: #10b981; font-size: 20px; margin-right: 12px;">✓</span>
+                              <span style="font-size: 15px; color: #374151; line-height: 1.6;">
+                                Create and assign onboarding templates
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 10px 0;">
+                            <div style="display: flex; align-items: start;">
+                              <span style="color: #10b981; font-size: 20px; margin-right: 12px;">✓</span>
+                              <span style="font-size: 15px; color: #374151; line-height: 1.6;">
+                                Review and approve employee documents
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 10px 0;">
+                            <div style="display: flex; align-items: start;">
+                              <span style="color: #10b981; font-size: 20px; margin-right: 12px;">✓</span>
+                              <span style="font-size: 15px; color: #374151; line-height: 1.6;">
+                                Monitor employee progress and task completion
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 10px 0;">
+                            <div style="display: flex; align-items: start;">
+                              <span style="color: #10b981; font-size: 20px; margin-right: 12px;">✓</span>
+                              <span style="font-size: 15px; color: #374151; line-height: 1.6;">
+                                Generate reports and analytics for ${department || 'your department'}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding: 0 30px 30px 30px;">
+                      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #eff6ff; border-radius: 8px; padding: 20px;">
+                        <tr>
+                          <td>
+                            <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: bold; color: #1e40af;">
+                              💬 Admin Support
+                            </p>
+                            <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #1e40af;">
+                              If you have any questions about your HR responsibilities or need technical assistance, 
+                              please contact the system administrator. We're here to support you in managing your team effectively.
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding: 0 30px 30px 30px;">
+                      <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border-radius: 8px; padding: 20px; border: 1px solid #10b981;">
+                        <tr>
+                          <td>
+                            <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: bold; color: #065f46;">
+                              🚀 Getting Started
+                            </p>
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                              <tr>
+                                <td style="padding: 5px 0;">
+                                  <span style="background-color: #10b981; color: #ffffff; font-weight: bold; border-radius: 50%; width: 24px; height: 24px; display: inline-block; text-align: center; line-height: 24px; margin-right: 10px;">1</span>
+                                  <span style="font-size: 14px; color: #065f46;">Log in using your email and temporary password</span>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 5px 0;">
+                                  <span style="background-color: #10b981; color: #ffffff; font-weight: bold; border-radius: 50%; width: 24px; height: 24px; display: inline-block; text-align: center; line-height: 24px; margin-right: 10px;">2</span>
+                                  <span style="font-size: 14px; color: #065f46;">Change your password to a secure one</span>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 5px 0;">
+                                  <span style="background-color: #10b981; color: #ffffff; font-weight: bold; border-radius: 50%; width: 24px; height: 24px; display: inline-block; text-align: center; line-height: 24px; margin-right: 10px;">3</span>
+                                  <span style="font-size: 14px; color: #065f46;">Explore the HR dashboard and familiarize yourself</span>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 5px 0;">
+                                  <span style="background-color: #10b981; color: #ffffff; font-weight: bold; border-radius: 50%; width: 24px; height: 24px; display: inline-block; text-align: center; line-height: 24px; margin-right: 10px;">4</span>
+                                  <span style="font-size: 14px; color: #065f46;">Start managing your department's onboarding</span>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding: 0 30px 40px 30px;">
+                      <p style="margin: 0 0 5px 0; font-size: 16px; line-height: 1.6; color: #374151;">
+                        Welcome to the HR management team!
+                      </p>
+                      <p style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">
+                        Best regards,<br/>
+                        <span style="color: #10b981;">The ${companyName} Admin Team</span>
+                      </p>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+                      <p style="margin: 0 0 10px 0; font-size: 12px; color: #9ca3af;">
+                        This is an automated email. Please do not reply to this message.
+                      </p>
+                      <p style="margin: 0; font-size: 12px; color: #9ca3af;">
+                        © ${new Date().getFullYear()} ${companyName}. All rights reserved.
+                      </p>
+                    </td>
+                  </tr>
+
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+      `,
+      text: `
+HR MANAGER ACCOUNT CREATED - ${companyName}
+════════════════════════════════════════════
+
+Dear ${name},
+
+You have been designated as an HR Manager at ${companyName}. Your account has been created with administrative privileges to manage employee onboarding and operations.
+
+${department ? `You will be managing the ${department} department.\n\n` : ''}
+YOUR HR PORTAL LOGIN CREDENTIALS
+─────────────────────────────────────────
+
+HR Manager ID: ${employeeId}
+Login Email: ${email}
+Temporary Password: ${password}
+
+⚠️ CRITICAL SECURITY NOTICE
+────────────────────────────────────
+As an HR Manager, you have access to sensitive employee data. Please:
+
+• Change your password immediately after first login
+• Never share your credentials with anyone
+• Use a strong, unique password
+• Log out when not using the system
+
+YOUR HR RESPONSIBILITIES
+────────────────────────────
+✓ Manage employee onboarding and offboarding
+✓ Create and assign onboarding templates
+✓ Review and approve employee documents
+✓ Monitor employee progress and task completion
+✓ Generate reports and analytics for ${department || 'your department'}
+
+GETTING STARTED
+───────────────
+1. Log in using your email and temporary password
+2. Change your password to a secure one
+3. Explore the HR dashboard and familiarize yourself
+4. Start managing your department's onboarding
+
+ADMIN SUPPORT
+─────────────
+If you have any questions about your HR responsibilities or need technical assistance, please contact the system administrator.
+
+Welcome to the HR management team!
+
+Best regards,
+The ${companyName} Admin Team
+
+────────────────────────────────────────────
+This is an automated email. Please do not reply to this message.
+© ${new Date().getFullYear()} ${companyName}. All rights reserved.
+      `
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`HR account credentials email sent to: ${email}`);
+    console.log(`   Message ID: ${info.messageId}`);
+    logger.info(`HR account credentials email sent to: ${email} - Message ID: ${info.messageId}`);
+    return info;
+  } catch (error) {
+    console.error(`Error sending HR account credentials email to ${email}:`, error.message);
+    logger.error(`Failed to send HR account credentials email: ${error.message}`);
+    throw error;
+  }
+};
+
 const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password, position, startDate, department }) => {
   try {
     console.log(`Sending employee credentials email to: ${email}`);
@@ -103,10 +449,8 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
           <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 20px;">
             <tr>
               <td align="center">
-                <!-- Main Container -->
                 <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
                   
-                  <!-- Header with Gradient -->
                   <tr>
                     <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
                       <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: bold; letter-spacing: -0.5px;">
@@ -118,7 +462,6 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
                     </td>
                   </tr>
 
-                  <!-- Greeting Section -->
                   <tr>
                     <td style="padding: 40px 30px 20px 30px;">
                       <p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #374151;">
@@ -134,11 +477,9 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
                     </td>
                   </tr>
 
-                  <!-- Credentials Card -->
                   <tr>
                     <td style="padding: 0 30px 30px 30px;">
                       <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%); border-radius: 12px; border: 2px solid #e5e7eb; overflow: hidden;">
-                        <!-- Card Header -->
                         <tr>
                           <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
                             <h2 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: bold;">
@@ -147,10 +488,8 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
                           </td>
                         </tr>
                         
-                        <!-- Card Body -->
                         <tr>
                           <td style="padding: 30px;">
-                            <!-- Employee ID -->
                             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 20px;">
                               <tr>
                                 <td style="padding: 12px 0;">
@@ -164,7 +503,6 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
                               </tr>
                             </table>
 
-                            <!-- Email -->
                             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 20px;">
                               <tr>
                                 <td style="padding: 12px 0;">
@@ -178,7 +516,6 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
                               </tr>
                             </table>
 
-                            <!-- Temporary Password -->
                             <table width="100%" cellpadding="0" cellspacing="0">
                               <tr>
                                 <td style="padding: 12px 0;">
@@ -197,7 +534,6 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
                     </td>
                   </tr>
 
-                  <!-- Security Notice -->
                   <tr>
                     <td style="padding: 0 30px 30px 30px;">
                       <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 20px;">
@@ -216,7 +552,6 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
                     </td>
                   </tr>
 
-                  <!-- Next Steps -->
                   <tr>
                     <td style="padding: 0 30px 30px 30px;">
                       <h3 style="margin: 0 0 15px 0; font-size: 18px; font-weight: bold; color: #111827;">
@@ -257,7 +592,6 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
                     </td>
                   </tr>
 
-                  <!-- Support Section -->
                   <tr>
                     <td style="padding: 0 30px 40px 30px;">
                       <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #eff6ff; border-radius: 8px; padding: 20px;">
@@ -276,7 +610,6 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
                     </td>
                   </tr>
 
-                  <!-- Closing -->
                   <tr>
                     <td style="padding: 0 30px 40px 30px;">
                       <p style="margin: 0 0 5px 0; font-size: 16px; line-height: 1.6; color: #374151;">
@@ -289,7 +622,6 @@ const sendEmployeeCredentialsEmail = async ({ name, email, employeeId, password,
                     </td>
                   </tr>
 
-                  <!-- Footer -->
                   <tr>
                     <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
                       <p style="margin: 0 0 10px 0; font-size: 12px; color: #9ca3af;">
@@ -411,6 +743,7 @@ module.exports = {
   transporter,
   sendWelcomeEmail,
   sendEmployeeCredentialsEmail,
+  sendHRAccountCredentialsEmail,
   sendPasswordResetOTP,
   testEmailConnection
 };
