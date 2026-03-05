@@ -12,6 +12,7 @@ const employeeRoutes = require('./routes/employeeRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const agentRoutes = require('./routes/agentRoutes');
 
 const app = express();
 
@@ -86,6 +87,8 @@ app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/employee/notifications', notificationRoutes);
 app.use('/api/v1/hr/notifications', notificationRoutes);
 app.use('/api/v1/admin/notifications', notificationRoutes);
+
+app.use('/api/v1/agent', agentRoutes);
 
 app.use('/api/v1', routes);
 
