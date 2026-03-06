@@ -1,11 +1,22 @@
 const express = require('express');
 const router  = express.Router();
-const pool    = require('../config/database');   
-const { authenticate } = require('../middleware/auth');  
+const pool    = require('../config/database');
+const { authenticate } = require('../middleware/auth');
+
+// ── KEY FIX: Resolves EMP-format code or UUID to the correct SQL WHERE clause ─
+// Returns { condition, value } where condition is the SQL fragment and
+// value is what gets passed as $1 to the query.
+function resolveIdCondition(id) {
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  return {
+    condition: isUUID ? 'u.id = $1' : 'u.employee_id = $1',
+    value: id,
+  };
+}
 
 // Query params: onboarding_status
 // Used by AI tool: get_all_employees, get_employees_by_status
-router.get('/employees', authenticate, async (req, res, next) => {  
+router.get('/employees', authenticate, async (req, res, next) => {
   try {
     const { onboarding_status } = req.query;
 
@@ -49,8 +60,13 @@ router.get('/employees', authenticate, async (req, res, next) => {
 
 // GET /api/v1/agent/employees/:id
 // Used by AI tool: get_employee_by_id
-router.get('/employees/:id', authenticate, async (req, res, next) => {  
+// FIXED: accepts both UUID and EMP-format code (e.g. EMP2602521)
+router.get('/employees/:id', authenticate, async (req, res, next) => {
   try {
+    // STEP 1: Detect if it's a UUID or EMP code, build the right WHERE clause
+    const { condition, value } = resolveIdCondition(req.params.id);
+
+    // STEP 2: Run query using the resolved condition
     const result = await pool.query(
       `SELECT
          u.id, u.name, u.email, u.employee_id, u.position,
@@ -61,8 +77,8 @@ router.get('/employees/:id', authenticate, async (req, res, next) => {
        FROM   users u
        LEFT JOIN departments d ON d.id = u.department_id
        LEFT JOIN users       m ON m.id = u.manager_id
-       WHERE  u.id = $1 AND u.is_active = true`,
-      [req.params.id]
+       WHERE  ${condition} AND u.is_active = true`,
+      [value]
     );
 
     if (!result.rows.length) {
@@ -77,8 +93,13 @@ router.get('/employees/:id', authenticate, async (req, res, next) => {
 
 // GET /api/v1/agent/employees/:id/progress
 // Used by AI tool: get_employee_progress
-router.get('/employees/:id/progress', authenticate, async (req, res, next) => {  
+// FIXED: accepts both UUID and EMP-format code
+router.get('/employees/:id/progress', authenticate, async (req, res, next) => {
   try {
+    // STEP 1: Resolve UUID or EMP code
+    const { condition, value } = resolveIdCondition(req.params.id);
+
+    // STEP 2: Query progress using resolved condition
     const result = await pool.query(
       `SELECT
          u.id            AS employee_id,
@@ -94,9 +115,9 @@ router.get('/employees/:id/progress', authenticate, async (req, res, next) => {
          )                                                            AS percent
        FROM   users u
        LEFT JOIN employee_tasks et ON et.employee_id = u.id
-       WHERE  u.id = $1
+       WHERE  ${condition}
        GROUP BY u.id, u.name, u.onboarding_status`,
-      [req.params.id]
+      [value]
     );
 
     if (!result.rows.length) {
@@ -111,14 +132,22 @@ router.get('/employees/:id/progress', authenticate, async (req, res, next) => {
 
 // Query params: status
 // Used by AI tool: get_employee_tasks
-router.get('/employees/:id/tasks', authenticate, async (req, res, next) => {  
+// FIXED: accepts both UUID and EMP-format code
+router.get('/employees/:id/tasks', authenticate, async (req, res, next) => {
   try {
+    // STEP 1: Resolve UUID or EMP code
+    const { condition, value } = resolveIdCondition(req.params.id);
+
     const { status } = req.query;
-    const values     = [req.params.id];
-    const statusSQL  = status
+    const values     = [value];
+
+    // Replace the hardcoded et.employee_id = $1 with resolved condition
+    // We need to join through users table to support employee_id code lookup
+    const statusSQL = status
       ? (values.push(status), `AND et.status = $${values.length}`)
       : '';
 
+    // STEP 2: Join through users to support both UUID and EMP code lookup
     const result = await pool.query(
       `SELECT
          et.id,
@@ -133,9 +162,10 @@ router.get('/employees/:id/tasks', authenticate, async (req, res, next) => {
          t.is_required,
          t.estimated_time,
          t.order_index
-       FROM   employee_tasks et
+       FROM   users u
+       JOIN   employee_tasks et ON et.employee_id = u.id
        JOIN   tasks t ON t.id = et.task_id
-       WHERE  et.employee_id = $1 ${statusSQL}
+       WHERE  ${condition} ${statusSQL}
        ORDER  BY t.order_index ASC`,
       values
     );
@@ -152,7 +182,7 @@ router.get('/employees/:id/tasks', authenticate, async (req, res, next) => {
 
 // Query params: employee_id, status
 // Used by AI tool: get_employee_documents
-router.get('/documents', authenticate, async (req, res, next) => {  
+router.get('/documents', authenticate, async (req, res, next) => {
   try {
     const { employee_id, status } = req.query;
     const conditions = [];
@@ -195,7 +225,7 @@ router.get('/documents', authenticate, async (req, res, next) => {
 
 // Body: { user_id, title, message, type }
 // Used by AI tool: send_reminder
-router.post('/notifications/send', authenticate, async (req, res, next) => {  
+router.post('/notifications/send', authenticate, async (req, res, next) => {
   try {
     const { user_id, title, message, type = 'task_reminder' } = req.body;
 
@@ -215,7 +245,7 @@ router.post('/notifications/send', authenticate, async (req, res, next) => {
       return res.status(404).json({ status: 'error', message: 'Employee not found' });
     }
 
-    // 2. Insert into notifications table (your existing schema)
+    // 2. Insert into notifications table
     const result = await pool.query(
       `INSERT INTO notifications (user_id, title, message, type)
        VALUES ($1, $2, $3, $4)
@@ -223,7 +253,7 @@ router.post('/notifications/send', authenticate, async (req, res, next) => {
       [user_id, title || 'Onboarding Reminder', message, type]
     );
 
-    // 3. Log to activity_logs (your existing schema)
+    // 3. Log to activity_logs
     await pool.query(
       `INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details)
        VALUES ($1, 'reminder_sent', 'notification', $2, $3)`,
@@ -234,7 +264,7 @@ router.post('/notifications/send', authenticate, async (req, res, next) => {
       ]
     );
 
-    // 4. TODO: Send actual email here 
+    // 4. TODO: Send actual email here
     // const { sendEmail } = require('../config/email');
     // await sendEmail({
     //   to:      empCheck.rows[0].email,
@@ -246,10 +276,10 @@ router.post('/notifications/send', authenticate, async (req, res, next) => {
       status:  'success',
       message: 'Reminder sent successfully',
       data: {
-        id:           result.rows[0].id,
-        sent_to_name: empCheck.rows[0].name,
-        sent_to_email:empCheck.rows[0].email,
-        created_at:   result.rows[0].created_at,
+        id:            result.rows[0].id,
+        sent_to_name:  empCheck.rows[0].name,
+        sent_to_email: empCheck.rows[0].email,
+        created_at:    result.rows[0].created_at,
       },
     });
   } catch (err) {
@@ -259,7 +289,7 @@ router.post('/notifications/send', authenticate, async (req, res, next) => {
 
 // GET /api/v1/agent/analytics/overview
 // Used by AI tool: get_company_analytics
-router.get('/analytics/overview', authenticate, async (req, res, next) => {  
+router.get('/analytics/overview', authenticate, async (req, res, next) => {
   try {
     const result = await pool.query(
       `SELECT
