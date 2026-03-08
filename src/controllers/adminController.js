@@ -3,54 +3,31 @@ const bcrypt = require('bcryptjs');
 const emailService = require('../config/email');
 
 const adminController = {
-  getStats: async (req, res) => {
-    try {
-      const statsQuery = `
-        SELECT 
-          (SELECT COUNT(*) FROM users WHERE role = 'employee') as total_employees,
-          (SELECT COUNT(*) FROM users WHERE role = 'hr') as hr_managers,
-          (SELECT COUNT(*) FROM users WHERE role = 'employee' AND onboarding_status = 'in_progress') as active_onboardings,
-          (SELECT COUNT(*) FROM employee_tasks WHERE status = 'overdue') as overdue_tasks,
-          (SELECT COUNT(*) FROM users WHERE role = 'employee' AND onboarding_status = 'completed') as completed_onboardings,
-          (SELECT COUNT(*) FROM templates) as total_templates
-      `;
-      
-      const avgQuery = `
-        SELECT COALESCE(AVG(onboarding_completed_date - start_date), 0) as avg_days
-        FROM users 
-        WHERE role = 'employee' 
-          AND onboarding_status = 'completed'
-          AND onboarding_completed_date IS NOT NULL
-          AND start_date IS NOT NULL
-      `;
+ getStats: async (req, res) => {
+  try {
+    const analyticsService = require('../services/analyticsService');
+    const stats = await analyticsService.getDashboardStats();
 
-      const [statsResult, avgResult] = await Promise.all([
-        pool.query(statsQuery),
-        pool.query(avgQuery)
-      ]);
-
-      const stats = {
-        totalUsers: parseInt(statsResult.rows[0].total_employees || 0) + parseInt(statsResult.rows[0].hr_managers || 0),
-        activeEmployees: parseInt(statsResult.rows[0].total_employees || 0),
-        totalTemplates: parseInt(statsResult.rows[0].total_templates || 0),
-        systemHealth: 100,
-        hrManagers: parseInt(statsResult.rows[0].hr_managers || 0),
-        completedOnboardings: parseInt(statsResult.rows[0].completed_onboardings || 0),
-        activeOnboardings: parseInt(statsResult.rows[0].active_onboardings || 0),
-        overdueTasks: parseInt(statsResult.rows[0].overdue_tasks || 0),
-        avgCompletionDays: Math.round(parseFloat(avgResult.rows[0].avg_days) || 0)
-      };
-
-      res.json(stats);
-    } catch (error) {
-      console.error('Get stats error:', error);
-      res.status(500).json({ 
-        message: 'Failed to fetch statistics',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  },
-
+    res.json({
+      totalUsers:            (stats.totalEmployees || 0),
+      activeEmployees:       stats.totalEmployees       || 0,
+      totalTemplates:        stats.totalTemplates       || 0,
+      systemHealth:          100,
+      hrManagers:            stats.hrManagers           || 0,
+      completedOnboardings:  stats.onboardingCompleted  || 0,
+      activeOnboardings:     stats.onboardingInProgress || 0,
+      overdueTasks:          stats.overdueTasks         || 0,
+      averageCompletionDays: stats.averageCompletionDays|| 0,
+      completionRate:        stats.completionRate       || 0,
+    });
+  } catch (error) {
+    console.error('Get stats error:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+},
   getDeptStats: async (req, res) => {
     try {
       const query = `

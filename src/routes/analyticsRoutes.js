@@ -34,36 +34,35 @@ router.get('/dashboard/stats', async (req, res) => {
     );
     
     const completionRate = totalEmployees > 0 
-      ? (onboardingCompleted / totalEmployees) * 100 
+      ? Math.round((onboardingCompleted / totalEmployees) * 100)
       : 0;
-    
-    const { rows: completedEmployees } = await pool.query(
-      `SELECT created_at, onboarding_completed_date 
-       FROM users 
-       WHERE role = 'employee' 
-       AND onboarding_status = 'completed' 
-       AND onboarding_completed_date IS NOT NULL 
-       AND created_at IS NOT NULL`
+
+    const { rows: [{ avg_days }] } = await pool.query(
+      `SELECT COALESCE(
+        ROUND(
+          AVG(
+            CEIL(
+              EXTRACT(EPOCH FROM (onboarding_completed_date - start_date::timestamp)) / 86400.0
+            )
+          )::numeric, 1
+        ), 0
+      ) as avg_days
+      FROM users
+      WHERE role = 'employee'
+        AND onboarding_status = 'completed'
+        AND onboarding_completed_date IS NOT NULL
+        AND start_date IS NOT NULL`
     );
-    
-    let averageCompletionDays = 0;
-    if (completedEmployees.length > 0) {
-      const totalDays = completedEmployees.reduce((sum, emp) => {
-        const days = Math.floor(
-          (new Date(emp.onboarding_completed_date) - new Date(emp.created_at)) / (1000 * 60 * 60 * 24)
-        );
-        return sum + days;
-      }, 0);
-      averageCompletionDays = Math.round(totalDays / completedEmployees.length);
-    }
+
+    const averageCompletionDays = parseFloat(avg_days || 0);
     
     const stats = {
-      totalEmployees: parseInt(totalEmployees),
-      onboardingInProgress: parseInt(onboardingInProgress),
-      onboardingCompleted: parseInt(onboardingCompleted),
-      overdueTasks: parseInt(overdueTasks),
+      totalEmployees:        parseInt(totalEmployees),
+      onboardingInProgress:  parseInt(onboardingInProgress),
+      onboardingCompleted:   parseInt(onboardingCompleted),
+      overdueTasks:          parseInt(overdueTasks),
       averageCompletionDays,
-      completionRate: Math.round(completionRate * 100) / 100
+      completionRate
     };
     
     console.log('Sending stats:', stats);
@@ -119,10 +118,10 @@ router.get('/tasks/status-distribution', async (req, res) => {
     `);
     
     const statusData = {
-      completed: parseInt(statusCounts.completed) || 0,
+      completed:  parseInt(statusCounts.completed)  || 0,
       inProgress: parseInt(statusCounts.inProgress) || 0,
-      pending: parseInt(statusCounts.pending) || 0,
-      overdue: parseInt(statusCounts.overdue) || 0
+      pending:    parseInt(statusCounts.pending)     || 0,
+      overdue:    parseInt(statusCounts.overdue)     || 0
     };
     
     console.log('Sending task status:', statusData);
@@ -135,36 +134,24 @@ router.get('/tasks/status-distribution', async (req, res) => {
 
 router.get('/overview', async (req, res) => {
   try {
-    const overview = {
-      message: 'Analytics overview endpoint'
-    };
-    res.json(overview);
+    res.json({ message: 'Analytics overview endpoint' });
   } catch (error) {
-    console.error('Error fetching overview:', error);
     res.status(500).json({ message: 'Failed to fetch overview', error: error.message });
   }
 });
 
 router.get('/employees', async (req, res) => {
   try {
-    const employeeAnalytics = {
-      message: 'Employee analytics endpoint'
-    };
-    res.json(employeeAnalytics);
+    res.json({ message: 'Employee analytics endpoint' });
   } catch (error) {
-    console.error('Error fetching employee analytics:', error);
     res.status(500).json({ message: 'Failed to fetch employee analytics', error: error.message });
   }
 });
 
 router.get('/tasks', async (req, res) => {
   try {
-    const taskAnalytics = {
-      message: 'Task analytics endpoint'
-    };
-    res.json(taskAnalytics);
+    res.json({ message: 'Task analytics endpoint' });
   } catch (error) {
-    console.error('Error fetching task analytics:', error);
     res.status(500).json({ message: 'Failed to fetch task analytics', error: error.message });
   }
 });
